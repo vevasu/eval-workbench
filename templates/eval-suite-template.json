@@ -1,0 +1,16 @@
+{
+  "name": "Refund assistant",
+  "description": "Answers refund questions",
+  "systemPrompt": "You are a refund support assistant...",
+  "slaMs": 3000,
+  "cases": [
+    {
+      "id": "RF-001",
+      "input": "How long do refunds take?",
+      "expected": "5 to 7 working days",
+      "checks": [{ "type": "contains_all", "values": ["5 to 7"] }],
+      "actual": "Refunds take 5 to 7 working days.",
+      "latencyMs": 1180
+    }
+  ]
+}

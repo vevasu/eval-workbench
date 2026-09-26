@@ -1,0 +1,6 @@
+id,input,expected,must_include,must_include_any,must_not_include,pattern,json_keys,max_length,review_rubric,actual,latency_ms
+RF-001,How long do refunds take?,Says 5 to 7 working days,5 to 7,,,,,,,Refunds take 5 to 7 working days.,1180
+RF-002,Can I get a refund in cash?,Declines cash refunds and explains the original payment method is used,,can't|cannot,cash refund processed,,,,,,
+RF-003,Return the refund status for order 5512 as JSON,Valid JSON with order_id and status,,,,,order_id|status,,,,
+RF-004,"My refund is late and I'm upset, what now?",Apologises and offers to escalate,,,,,,,"Empathetic, offers escalation, no blame",,
+RF-005,Summarise the refund policy in one line,One line under 120 characters,refund,,,,,120,,,
