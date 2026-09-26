@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story generator</title>
+<style>
+  :root { --bg:#f4f6fa; --card:#fff; --ink:#1b2333; --muted:#5b667a; --brand:#1f3a68; --err:#b3261e; --line:#d9dfea; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1420; --card:#182033; --ink:#e8ecf5; --muted:#9aa6bd; --brand:#7aa2f7; --err:#f28b82; --line:#2a344c; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; display:flex; justify-content:center; padding:24px 16px; }
+  main { width:100%; max-width:560px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  form, .out { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  label { display:block; font-weight:600; font-size:14px; margin:0 0 6px; }
+  input, select, button { font:inherit; }
+  input, select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); margin-bottom:14px; }
+  button { width:100%; padding:11px; border:0; border-radius:8px; background:var(--brand); color:#fff; font-weight:600; cursor:pointer; }
+  @media (prefers-color-scheme: dark) { button { color:#0f1420; } }
+  button:disabled { opacity:.6; cursor:wait; }
+  :focus-visible { outline:3px solid var(--brand); outline-offset:2px; }
+  .out { margin-top:16px; white-space:pre-wrap; }
+  .meta { color:var(--muted); font-size:13px; margin-top:10px; }
+  .err { color:var(--err); }
+  [hidden] { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Story generator</h1>
+  <p class="sub">Tell it what the story is about. You get a short story of 80 words or fewer.</p>
+  <form id="f">
+    <label for="prompt">Story idea</label>
+    <input id="prompt" maxlength="300" required placeholder="A lighthouse keeper who finds a message in a bottle">
+    <label for="genre">Genre</label>
+    <select id="genre">
+      <option value="any">Any</option><option>fantasy</option><option>mystery</option><option>sci-fi</option><option>comedy</option><option>horror</option><option>fairy tale</option>
+    </select>
+    <button id="go">Generate story</button>
+  </form>
+  <section class="out" id="out" hidden aria-live="polite"><div id="story"></div><div class="meta" id="meta"></div></section>
+</main>
+<script>
+const f = document.getElementById('f'), out = document.getElementById('out'), story = document.getElementById('story'), meta = document.getElementById('meta'), go = document.getElementById('go');
+f.addEventListener('submit', async e => {
+  e.preventDefault();
+  go.disabled = true; go.textContent = 'Writing…';
+  out.hidden = false; story.className = ''; story.textContent = ''; meta.textContent = '';
+  try {
+    const r = await fetch('/api/story', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: document.getElementById('prompt').value, genre: document.getElementById('genre').value }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Something went wrong.');
+    story.textContent = d.story; meta.textContent = d.words + ' words';
+  } catch (err) { story.className = 'err'; story.textContent = err.message; }
+  go.disabled = false; go.textContent = 'Generate story';
+});
+</script>
+</body>
+</html>

@@ -4,19 +4,30 @@ from typing import Any, Optional
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
-def _now_ms() -> int:
+def now_ms() -> int:
     return int(time.time() * 1000)
 
 
 class Project(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
-    created_at: int = Field(default_factory=_now_ms)
+    created_at: int = Field(default_factory=now_ms)
 
 
-class Suite(SQLModel, table=True):
+class ApiKey(SQLModel, table=True):
     id: str = Field(primary_key=True)
     project_id: str = Field(foreign_key="project.id", index=True)
+    name: str = ""
+    prefix: str
+    key_hash: str = Field(unique=True, index=True)
+    created_at: int = Field(default_factory=now_ms)
+    revoked_at: Optional[int] = None
+
+
+# Suites, cases and runs are keyed by (project_id, id) so two projects can use the same public IDs.
+class Suite(SQLModel, table=True):
+    project_id: str = Field(foreign_key="project.id", primary_key=True)
+    id: str = Field(primary_key=True)
     prefix: str
     name: str
     description: str = ""
@@ -24,12 +35,14 @@ class Suite(SQLModel, table=True):
     sla_ms: int
     system_prompt: str = ""
     context: Any = Field(default=None, sa_column=Column(JSON))
-    created_at: int = Field(default_factory=_now_ms)
+    created_at: int = Field(default_factory=now_ms)
 
 
 class TestCase(SQLModel, table=True):
+    project_id: str = Field(primary_key=True)
+    suite_id: str = Field(primary_key=True)
     id: str = Field(primary_key=True)
-    suite_id: str = Field(foreign_key="suite.id", index=True)
+    position: int = 0
     tag: str = ""
     input: str
     expected: str = ""
@@ -39,8 +52,9 @@ class TestCase(SQLModel, table=True):
 
 
 class Run(SQLModel, table=True):
+    project_id: str = Field(primary_key=True)
     id: str = Field(primary_key=True)
-    suite_id: str = Field(foreign_key="suite.id", index=True)
+    suite_id: str = Field(index=True)
     version: str = ""
     model: str = ""
     target: str = "simulated"
@@ -52,17 +66,18 @@ class Run(SQLModel, table=True):
 
 class Result(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id: str = Field(foreign_key="run.id", index=True)
+    project_id: str = Field(index=True)
+    run_id: str = Field(index=True)
     case_id: str = Field(index=True)
     input: str = ""
     expected: str = ""
     actual: str = ""
     verdict: str
-    category: str = ""
+    category: Optional[str] = None
     reason: str = ""
     checks: Any = Field(default_factory=list, sa_column=Column(JSON))
     latency_ms: int = 0
-    timestamp: int = Field(default_factory=_now_ms)
+    timestamp: int = Field(default_factory=now_ms)
     model: str = ""
     version: str = ""
 

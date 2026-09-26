@@ -9,10 +9,13 @@ Long term goal: a public, bring-your-own-key product in the same space as LangSm
 ## Current state
 
 - `frontend/index.html` is a working MVP. It is one self-contained file (HTML, CSS and vanilla JS, no build step, no framework) and runs in any browser. Open it directly or serve the folder with `python -m http.server`.
-- All data lives in browser `localStorage` under the key `eval-workbench.state.v1`. On first load it generates realistic sample data (3 suites, 13 runs, 129 executions).
-- `data/sample-data.json` is the same sample data exported as JSON. Use it to seed the backend.
+- All data lives in browser `localStorage` under the key `eval-workbench.state.v1`. On first load it generates realistic sample data: one story-generation demo suite ("Demo: Story generator", 10 cases, 5 runs, 50 executions). No LLM calls are involved; the simulator replays hand-written outputs.
+- `data/sample-data.json` is the same sample data exported as JSON (generate it by running `buildSeed()` in the page). Use it to seed the backend. `python -m app.seed` only replaces the sample suites and never touches other data in the project.
 - `templates/` holds the CSV and JSON import templates. The same templates can be downloaded from the Import suite dialog.
-- There is no backend yet. See `docs/BUILD_PLAN.md` for the order of work.
+- `backend/` is a FastAPI + SQLModel (SQLite) service: projects and hashed API keys, write API, server-side scoring in `app/scoring.py` (a port of the Evaluators module, tested against every result in `sample-data.json`), and `GET /state`, which returns everything in the `sample-data.json` shape for the web app. Suites, cases and runs are keyed by `(project_id, id)`. It also serves `frontend/`.
+- `sdk/python/` is the client (`Client.run_suite`, `@trace`, `span`). `examples/story-generator` is an OpenAI app evaluated through it.
+- The frontend has two modes. Demo mode uses localStorage as above. API mode is chosen in the sidebar (URL and key kept in `localStorage` under `eval-workbench.api.v1`) and loads `GET /state` into the same `Store.state` shape, so all views are unchanged; write actions are blocked there (`API_WRITE_ACTIONS`). Simulated, recorded and live-model runs exist only in demo mode.
+- Built so far: phases 0 to 6 of `docs/BUILD_PLAN.md`. Phase 7 (CI integration) is next.
 
 ## How to work on this project
 

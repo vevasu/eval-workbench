@@ -25,3 +25,7 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
+*.db.bak*
