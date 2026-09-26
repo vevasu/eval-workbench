@@ -47,7 +47,9 @@ if DATABASE_URL.startswith("sqlite"):
 
 
 def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
+    from .migrate import upgrade  # imported here: migrations import this module's engine
+
+    upgrade()
 
 
 def get_session():

@@ -67,6 +67,18 @@ gcloud run deploy eval-workbench --source . --region us-central1
 
 The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, which is where beta users install the SDK from. When you change the SDK version, update `SDK_VERSION` in `frontend/index.html` and the wheel name in `backend/app/manage.py` too.
 
+## Changing the database schema
+
+The server brings the schema up to date on startup with Alembic (`backend/app/migrate.py`, migrations in `backend/migrations/versions`). After changing `app/models.py`, from the `backend` folder:
+
+```
+python -m alembic revision --autogenerate -m "what changed"
+```
+
+Read the generated file, fix anything Alembic guessed wrong (renames look like a drop plus an add), run the tests, and commit it. The next deploy applies it; if several instances start at once, a Postgres lock makes them migrate one at a time. Take a Neon snapshot branch first (see below). If the models and the live schema still differ after migrating, the server logs a warning starting "Database schema differs from the models".
+
+A database created before migrations existed is marked as the baseline (`0001`) the first time the new server starts.
+
 ## Backups and restoring
 
 The database relies on Neon's built-in point-in-time restore: Neon keeps a history of every change for a restore window set by your plan (short on the free plan, longer on paid plans). Check it in the Neon console under **Settings**, then **Storage** (history retention), and raise it if the window is shorter than the time you'd take to notice a problem.
@@ -94,4 +106,4 @@ Before a risky change (a schema migration, a bulk delete), take a manual snapsho
 
 ## Before you charge anyone
 
-Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, terms of service, database migrations, and pagination for large histories. The current allowances are flat beta limits, not plans.
+Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, terms of service, and pagination for large histories. The current allowances are flat beta limits, not plans.
