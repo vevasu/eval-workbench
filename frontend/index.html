@@ -63,6 +63,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .side-foot{margin-top:auto;padding:12px 10px 0;border-top:1px solid rgba(255,255,255,.08);font-size:12px;line-height:1.45}
 .side-foot button{background:none;border:1px solid rgba(255,255,255,.18);color:var(--side-ink);border-radius:6px;padding:5px 9px;margin-top:8px;cursor:pointer;font-size:12px}
 .side-foot button:hover{color:#fff;border-color:rgba(255,255,255,.4)}
+.side-foot .side-link{display:inline-block;margin-top:10px;color:var(--side-ink);font-size:12px}.side-foot .side-link:hover{color:#fff}
 .side-foot .mode{display:flex;align-items:center;gap:6px;font-weight:600;color:#fff}
 .side-foot .mode i{width:8px;height:8px;border-radius:50%;background:#E3AD45;display:inline-block}
 .side-foot .mode.live i{background:#46C08E}
@@ -699,6 +700,7 @@ function modalRequestAccess() {
     <label class="field full"><span>Name or team (optional)</span><input type="text" id="ra-name" maxlength="100" autocomplete="organization"></label>
     <label class="field full"><span>What will you evaluate? (optional)</span><textarea id="ra-use" maxlength="1000" placeholder="For example: a support chatbot on GPT-4o"></textarea></label>
     <div class="hp" aria-hidden="true"><label>Website<input type="text" id="ra-web" tabindex="-1" autocomplete="off"></label></div></div>
+    <p class="hint" style="margin:10px 0 0">We use your email only to review your request and send your key. See the <a href="privacy.html" target="_blank" rel="noopener">privacy notice</a>.</p>
     <p class="err" id="ra-err" hidden></p><div class="modal-foot"><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="send-access-request">Send request</button></div>`);
 }
 async function sendAccessRequest() {
@@ -717,8 +719,8 @@ async function sendAccessRequest() {
 function renderSideFoot() {
   const api = Store.mode === 'api';
   $('#side-foot').innerHTML = api
-    ? `<div class="mode live"><i></i>Live data</div>${esc(Api.project ? Api.project.name : 'API project')}<br>Read from the API. Runs from your code appear after you refresh.<div class="row"><button type="button" data-action="refresh-data">Refresh</button><button type="button" data-action="api-settings">Settings</button></div>`
-    : `<div class="mode"><i></i>Demo data</div>Your suites and runs are saved in this browser.<div class="row"><button type="button" data-action="request-access">Request access</button><button type="button" data-action="api-settings">I have a key</button><button type="button" data-action="reset">Restore sample data</button></div>`;
+    ? `<div class="mode live"><i></i>Live data</div>${esc(Api.project ? Api.project.name : 'API project')}<br>Read from the API. Runs from your code appear after you refresh.<div class="row"><button type="button" data-action="refresh-data">Refresh</button><button type="button" data-action="api-settings">Settings</button></div><a class="side-link" href="privacy.html">Privacy</a>`
+    : `<div class="mode"><i></i>Demo data</div>Your suites and runs are saved in this browser.<div class="row"><button type="button" data-action="request-access">Request access</button><button type="button" data-action="api-settings">I have a key</button><button type="button" data-action="reset">Restore sample data</button></div><a class="side-link" href="privacy.html">Privacy</a>`;
 }
 function modalApiSettings(err) {
   const c = Api.config() || {};

@@ -64,7 +64,7 @@ The SDK runs each test case through your function in your own process, times it,
 
 ## Repository
 
-- `frontend/` the web app (single file, no build step) and `admin.html`, the operator page for access requests
+- `frontend/` the web app (single file, no build step) `admin.html`, the operator page for access requests, and `privacy.html`, the privacy notice
 - `backend/` FastAPI + SQLite service: API keys, write API, server-side scoring, seed command, tests
 - `sdk/python/` Python client with `run_suite`, `@trace` and `span()`
 - `examples/` example applications that use the SDK

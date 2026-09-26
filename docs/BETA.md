@@ -27,6 +27,10 @@ The same actions exist as admin API calls (`/admin/access-requests`, `/admin/pro
 
 Keys are stored as hashes. If someone loses theirs, revoke it and issue a new one.
 
+## Privacy notice
+
+`frontend/privacy.html` (served at `/privacy.html`) says what is collected, who processes it (Google Cloud, Neon, Google Fonts) and how to delete it. It is linked from the access request form and the sidebar. The contact address is productlab.support@gmail.com. Update the page and its date whenever you add a processor or start collecting something new. It was written for the beta and has not been reviewed by a lawyer.
+
 ## Deleting data
 
 Users can delete their own project at any time: in the web app, **Settings**, then **Delete my project** (they type the project id to confirm), or `client.delete_project("<project id>")` in the SDK, or `DELETE /project?confirm=<project id>` with their key. This removes every suite, case, run, result and trace, all the project's keys, and the access request with their email. If someone asks you by email instead, run `delete-project` (or `DELETE /admin/projects/<project>`). For someone who was never approved, `delete-request` removes their email.
@@ -72,4 +76,4 @@ The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, 
 
 ## Before you charge anyone
 
-Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, privacy terms, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.
+Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, terms of service, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.
