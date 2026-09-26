@@ -2,6 +2,8 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..settings import is_production
+
 router = APIRouter(tags=["dev"], include_in_schema=False)
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
@@ -19,6 +21,6 @@ def dev_connect(request: Request):
     hostname = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
     client = request.client.host if request.client else ""
     same_origin = request.headers.get("sec-fetch-site", "same-origin") in ("same-origin", "none")
-    if not key or hostname not in LOCAL_HOSTS or client not in ("127.0.0.1", "::1") or not same_origin:
+    if is_production() or not key or hostname not in LOCAL_HOSTS or client not in ("127.0.0.1", "::1") or not same_origin:
         raise HTTPException(status_code=404)
     return {"url": f"{request.url.scheme}://{host}", "key": key}

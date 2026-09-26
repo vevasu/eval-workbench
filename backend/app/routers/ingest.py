@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from ..auth import current_project
+from ..limits import check_result_quota, check_spans, check_text
+from ..ratelimit import hit
+from ..settings import limits
 from ..db import get_session
 from ..models import Project, Result, Run, Span, Suite, now_ms
 from ..schemas import CamelModel, ResultOut, SpanIn
@@ -31,7 +34,11 @@ class TraceIn(CamelModel):
 @router.post("/ingest", status_code=201)
 def ingest_trace(body: TraceIn, project: Project = Depends(current_project), session: Session = Depends(get_session)):
     """Record one real request from a running application as an execution, scored by the checks it sends."""
+    hit(f"ingest:{project.id}", limits()["ingest_per_minute"], 60)
+    check_text(input=body.input, actual=body.actual)
+    check_spans(body.spans)
     validate_checks(body.checks)
+    check_result_quota(session, project.id)
     suite = session.get(Suite, (project.id, body.suite_id))
     if suite is None:
         suite = create_suite(session, project.id, {"id": body.suite_id, "name": body.suite_name or body.suite_id})

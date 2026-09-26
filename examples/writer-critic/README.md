@@ -40,6 +40,8 @@ python cli.py --topic "Why small code reviews beat big ones" --audience "enginee
   --points "big reviews get rubber-stamped; small ones ship faster" --format "LinkedIn post"
 ```
 
+If it won't start: run the command from inside `examples/writer-critic` (from the repository root you get "Could not import module app"), and if you see "only one usage of each socket address", something is already using port 8200, so pick another with `--port 8201`.
+
 Tests (use a scripted fake model, so no API calls): `pip install pytest`, then `python -m pytest`.
 
 ## Code map

@@ -1,6 +1,7 @@
 import time
 from typing import Any, Optional
 
+from sqlalchemy import BigInteger
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
@@ -8,10 +9,15 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def ms_column(nullable: bool = False):
+    """Epoch milliseconds do not fit in a 32-bit Postgres INTEGER, so timestamps are BIGINT."""
+    return Column(BigInteger, nullable=nullable)
+
+
 class Project(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
-    created_at: int = Field(default_factory=now_ms)
+    created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
 
 
 class ApiKey(SQLModel, table=True):
@@ -20,8 +26,8 @@ class ApiKey(SQLModel, table=True):
     name: str = ""
     prefix: str
     key_hash: str = Field(unique=True, index=True)
-    created_at: int = Field(default_factory=now_ms)
-    revoked_at: Optional[int] = None
+    created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
+    revoked_at: Optional[int] = Field(default=None, sa_column=ms_column(nullable=True))
 
 
 # Suites, cases and runs are keyed by (project_id, id) so two projects can use the same public IDs.
@@ -35,7 +41,7 @@ class Suite(SQLModel, table=True):
     sla_ms: int
     system_prompt: str = ""
     context: Any = Field(default=None, sa_column=Column(JSON))
-    created_at: int = Field(default_factory=now_ms)
+    created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
 
 
 class TestCase(SQLModel, table=True):
@@ -59,8 +65,8 @@ class Run(SQLModel, table=True):
     model: str = ""
     target: str = "simulated"
     note: str = ""
-    started_at: int
-    finished_at: Optional[int] = None
+    started_at: int = Field(sa_column=ms_column())
+    finished_at: Optional[int] = Field(default=None, sa_column=ms_column(nullable=True))
     sla_ms: int
 
 
@@ -77,7 +83,7 @@ class Result(SQLModel, table=True):
     reason: str = ""
     checks: Any = Field(default_factory=list, sa_column=Column(JSON))
     latency_ms: int = 0
-    timestamp: int = Field(default_factory=now_ms)
+    timestamp: int = Field(default_factory=now_ms, sa_column=ms_column())
     model: str = ""
     version: str = ""
 
@@ -91,3 +97,15 @@ class Span(SQLModel, table=True):
     dur: float = 0
     depth: int = 0
     attrs: Any = Field(default_factory=dict, sa_column=Column(JSON))
+
+
+class AccessRequest(SQLModel, table=True):
+    """Someone asked for private beta access. The operator approves it, which creates a project and an API key."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True)
+    name: str = ""
+    use_case: str = ""
+    status: str = "pending"  # pending, approved or rejected
+    project_id: Optional[str] = None
+    created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
+    decided_at: Optional[int] = Field(default=None, sa_column=ms_column(nullable=True))

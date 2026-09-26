@@ -4,18 +4,35 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import os
+
 from .db import init_db
-from .routers import admin, cases, dev, ingest, runs, state, suites
+from .routers import access, admin, cases, dev, ingest, runs, state, suites
+from .settings import is_production
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
-app = FastAPI(title="Eval Workbench API")
+PROD = is_production()
+# In production the interactive API docs are off.
+app = FastAPI(title="Eval Workbench API", docs_url=None if PROD else "/docs", redoc_url=None,
+              openapi_url=None if PROD else "/openapi.json")
 # Keys travel in the Authorization header, not cookies, so any origin can be allowed.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    return response
+
+
 @app.on_event("startup")
 def on_startup() -> None:
+    if PROD and not os.environ.get("EVAL_WORKBENCH_ADMIN_KEY"):
+        raise RuntimeError("EVAL_WORKBENCH_ADMIN_KEY must be set when EVAL_WORKBENCH_ENV=production.")
     init_db()
 
 
@@ -25,6 +42,8 @@ def health():
 
 
 app.include_router(admin.router)
+app.include_router(access.router)
+app.include_router(access.admin)
 app.include_router(suites.router)
 app.include_router(cases.router)
 app.include_router(runs.router)

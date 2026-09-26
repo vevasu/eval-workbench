@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..auth import current_project
+from ..limits import check_result_quota, check_spans, check_text
+from ..ratelimit import hit
+from ..settings import limits
 from ..db import get_session
 from ..models import Project, Result, Run, Span, TestCase, now_ms
 from ..schemas import CaseOut, ResultIn, ResultOut, ResultsIn, RunIn, RunOut
@@ -79,9 +82,16 @@ def _store_result(session: Session, run: Run, case: TestCase, body: ResultIn) ->
 @router.post("/runs/{run_id}/results")
 def add_results(run_id: str, body: ResultsIn, project: Project = Depends(current_project),
                 session: Session = Depends(get_session)):
+    hit(f"ingest:{project.id}", limits()["ingest_per_minute"], 60)
+    if len(body.results) > limits()["max_batch"]:
+        raise HTTPException(status_code=413, detail=f"Send at most {limits()['max_batch']} results per request.")
+    for r in body.results:
+        check_text(actual=r.actual)
+        check_spans(r.spans)
     run = get_run_or_404(session, project.id, run_id)
     if run.finished_at is not None:
         raise HTTPException(status_code=409, detail="This run is already complete.")
+    check_result_quota(session, project.id, adding=len(body.results))
     cases = {c.id: c for c in cases_for(session, project.id, run.suite_id)}
     unknown = [r.case_id for r in body.results if r.case_id not in cases]
     if unknown:

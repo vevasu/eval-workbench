@@ -50,7 +50,8 @@ class Client:
         self._pending = [t for t in self._pending if t.is_alive()]
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
-        data = json.dumps(body).encode() if body is not None else None
+        # Some hosts (Google's front end) reject a POST with no body, so always send one.
+        data = json.dumps(body).encode() if body is not None else (b"{}" if method in ("POST", "PUT", "PATCH") else None)
         last: Optional[Exception] = None
         for attempt in range(self.retries + 1):
             req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={

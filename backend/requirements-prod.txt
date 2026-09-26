@@ -1,0 +1,3 @@
+-r requirements.txt
+# Postgres driver, used with DATABASE_URL=postgresql+psycopg://user:password@host/dbname
+psycopg[binary]>=3.1

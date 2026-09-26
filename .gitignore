@@ -29,3 +29,6 @@ Thumbs.db
 # Logs
 *.log
 *.db.bak*
+# Local secrets used only for deployment
+.neon-url
+.env.production

@@ -35,3 +35,10 @@ def auth(demo_key):
 @pytest.fixture(scope="session")
 def admin():
     return {"Authorization": "Bearer test-admin"}
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    from app import ratelimit
+    ratelimit.reset()
+    yield

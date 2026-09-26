@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from .limits import check_suite_quota
 from .models import Run, Suite, TestCase, now_ms
 from .scoring import EVALUATORS
 
@@ -26,6 +27,9 @@ def get_run_or_404(session: Session, project_id: str, run_id: str) -> Run:
 
 
 def validate_checks(checks: list) -> None:
+    from .settings import limits
+    if len(checks) > limits()["max_checks"]:
+        raise HTTPException(status_code=422, detail=f"A case can have at most {limits()['max_checks']} checks.")
     for c in checks:
         if c.get("type") not in EVALUATORS:
             raise HTTPException(status_code=422, detail=f"Unknown check type '{c.get('type')}'.")
@@ -42,6 +46,7 @@ def make_prefix(name: str) -> str:
 
 
 def create_suite(session: Session, project_id: str, data: dict) -> Suite:
+    check_suite_quota(session, project_id)
     base = data.get("id") or re.sub(r"[^a-z0-9]+", "-", data["name"].lower()).strip("-")[:30] or "suite"
     suite_id, i = base, 2
     while session.get(Suite, (project_id, suite_id)):

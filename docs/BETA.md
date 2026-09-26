@@ -1,0 +1,59 @@
+# Running a private beta
+
+The public sees a demo. Anyone can ask for access; you approve by hand; approved people get their own project and an API key. The Workbench never calls a model, so a beta costs you hosting only. Each user's app pays for its own model calls.
+
+## What a visitor sees
+
+Open the site: sample data (a story-generation app tested across five versions), a short explanation, and **Request beta access**. Nothing else is reachable without a key. `/state`, `/suites`, `/runs` and every other data route return 401 without one, and the interactive API docs and the local dev shortcut are off in production.
+
+## Operator workflow
+
+Run these where the backend runs, with the same environment variables as the server (see below).
+
+```
+python -m app.manage requests          # pending access requests
+python -m app.manage approve 3         # creates a project and prints its API key once, plus setup steps to email
+python -m app.manage reject 3
+python -m app.manage projects          # every project with usage against its allowance
+python -m app.manage newkey <project>  # another key for the same project
+python -m app.manage revoke <key id>   # key ids are listed by GET /admin/projects/<project>/keys
+```
+
+The same actions exist as admin API calls (`/admin/access-requests`, `/admin/projects/...`) using `Authorization: Bearer <admin key>`.
+
+Keys are stored as hashes. If someone loses theirs, revoke it and issue a new one.
+
+## Configuration
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `EVAL_WORKBENCH_ENV` | `production` turns off `/docs` and `/dev-connect`, and refuses to start without an admin key | development |
+| `EVAL_WORKBENCH_ADMIN_KEY` | Operator key for `/admin/...` (long and random) | none |
+| `DATABASE_URL` | Any SQLAlchemy URL. Use Postgres in production. | local SQLite file |
+| `TRUST_PROXY` | Set to `1` behind a load balancer so rate limits use the real client IP | off |
+| `MAX_RESULTS_PER_PROJECT` | Stored executions per project | 10000 |
+| `MAX_SUITES_PER_PROJECT` | Suites per project | 50 |
+| `MAX_TEXT_CHARS` | Longest single input or output | 20000 |
+| `MAX_SPANS_PER_EXECUTION` | Spans per trace | 200 |
+| `MAX_RESULTS_PER_BATCH` | Results per upload | 100 |
+| `RATE_LIMIT_INGEST_PER_MIN` | Uploads per project per minute | 120 |
+| `RATE_LIMIT_ACCESS_REQUESTS_PER_HOUR` | Access requests per network address | 5 |
+
+Never set `EVAL_WORKBENCH_DEV_KEY` on a shared or public server.
+
+## Deploying
+
+The `Dockerfile` in the repository root builds one image that serves the API and the web app. Build context is the repository root. On the host, set `EVAL_WORKBENCH_ADMIN_KEY`, `DATABASE_URL` (Postgres with persistent storage), `TRUST_PROXY=1`, and put HTTPS in front of it (most hosts do this for you). The image reads `PORT` if the host sets it.
+
+Not yet verified: running against Postgres and building the Docker image have not been tested here. Do a trial deploy and run through the flow above before inviting anyone.
+
+## What beta users do
+
+1. You send them the key and your Workbench address (`approve` prints the message).
+2. They install the SDK (`pip install -e sdk/python` from the repository for now) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
+3. They run a suite with `client.run_suite(...)` or send live traffic with `client.observe(...)`.
+4. They open your site, choose **I have a key**, paste it, and see only their own project.
+
+## Before you charge anyone
+
+Still to build: self-serve signup, per-plan quotas and billing, retention and delete-my-data tools, privacy terms, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.

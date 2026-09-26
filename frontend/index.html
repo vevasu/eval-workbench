@@ -67,6 +67,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .side-foot .mode i{width:8px;height:8px;border-radius:50%;background:#E3AD45;display:inline-block}
 .side-foot .mode.live i{background:#46C08E}
 .side-foot .row{display:flex;gap:6px;flex-wrap:wrap}
+.banner{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brand,#1F3A68);border-radius:10px;padding:14px 16px;margin:0 0 16px}
+.banner h2{margin:0 0 4px;font-size:16px}.banner p{margin:0 0 10px;color:var(--ink-2);font-size:14px}.banner .actions{display:flex;gap:8px;flex-wrap:wrap}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
 
 main{padding:28px 32px 60px;min-width:0;outline:none}
 .crumbs{font-size:13px;color:var(--ink-3);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -616,11 +619,40 @@ const Api = {
   async connect(cfg) { const s = await this.fetchState(cfg); Store.state = s; Store.mode = 'api'; this.project = s.project || null; },
   async refresh() { const cfg = this.config(); if (cfg && Store.mode === 'api') { Store.state = await this.fetchState(cfg); route(); } }
 };
+const BANNER_LS = 'eval-workbench.banner.dismissed';
+function demoBanner() {
+  if (Store.mode !== 'demo') return '';
+  try { if (localStorage.getItem(BANNER_LS)) return ''; } catch (e) {}
+  return `<section class="banner" aria-label="About this demo"><h2>You're looking at sample data</h2>
+    <p>Eval Workbench shows whether your AI app is getting better, where it fails and why. This demo is a story-generation app tested across five versions. The Workbench never calls a model itself: your app sends it results and traces through a small SDK, and it scores and tracks them.</p>
+    <div class="actions"><button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I have a key</button><button class="btn" data-action="dismiss-banner">Dismiss</button></div></section>`;
+}
+function modalRequestAccess() {
+  openModal(`<h2>Request beta access</h2><p class="hint">The private beta is invite-only. Tell us what you are building and we will email you a key to connect your own app.</p>
+    <div class="form-grid"><label class="field full"><span>Email</span><input type="email" id="ra-email" autocomplete="email" required></label>
+    <label class="field full"><span>Name or team (optional)</span><input type="text" id="ra-name" maxlength="100" autocomplete="organization"></label>
+    <label class="field full"><span>What will you evaluate? (optional)</span><textarea id="ra-use" maxlength="1000" placeholder="For example: a support chatbot on GPT-4o"></textarea></label>
+    <div class="hp" aria-hidden="true"><label>Website<input type="text" id="ra-web" tabindex="-1" autocomplete="off"></label></div></div>
+    <p class="err" id="ra-err" hidden></p><div class="modal-foot"><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="send-access-request">Send request</button></div>`);
+}
+async function sendAccessRequest() {
+  const err = m => { const e = $('#ra-err'); e.hidden = false; e.textContent = m; };
+  const email = $('#ra-email').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) return err('Enter a valid email address.');
+  const btn = $('[data-action=send-access-request]'); btn.disabled = true;
+  try {
+    const res = await fetch(Api.defaultUrl() + '/access-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name: $('#ra-name').value, useCase: $('#ra-use').value, website: $('#ra-web').value }) });
+    if (res.status === 429) { btn.disabled = false; return err('Too many requests from this network. Try again later.'); }
+    if (!res.ok) { btn.disabled = false; return err((await res.json().catch(() => ({}))).detail || 'Could not send the request. Try again.'); }
+    $('#modal-root .modal').innerHTML = `<h2>Request received</h2><p class="hint">Thanks. Requests are reviewed by hand. If approved, you will get an email with a key and setup steps.</p><div class="modal-foot"><button class="btn primary" data-action="close-modal">Close</button></div>`;
+  } catch (e) { btn.disabled = false; err('Could not reach the server. Try again shortly.'); }
+}
 function renderSideFoot() {
   const api = Store.mode === 'api';
   $('#side-foot').innerHTML = api
     ? `<div class="mode live"><i></i>Live data</div>${esc(Api.project ? Api.project.name : 'API project')}<br>Read from the API. Runs from your code appear after you refresh.<div class="row"><button type="button" data-action="refresh-data">Refresh</button><button type="button" data-action="api-settings">Settings</button></div>`
-    : `<div class="mode"><i></i>Demo data</div>Your suites and runs are saved in this browser.<div class="row"><button type="button" data-action="api-settings">Connect to API</button><button type="button" data-action="reset">Restore sample data</button></div>`;
+    : `<div class="mode"><i></i>Demo data</div>Your suites and runs are saved in this browser.<div class="row"><button type="button" data-action="request-access">Request access</button><button type="button" data-action="api-settings">I have a key</button><button type="button" data-action="reset">Restore sample data</button></div>`;
 }
 function modalApiSettings(err) {
   const c = Api.config() || {};
@@ -1309,7 +1341,7 @@ function route() {
     case 'compare': html = pageCompare(q); break;
     case 'traces': html = pageTraces(q); break;
     case 'trace': html = pageTrace(parts[1], parts[2]); nav = 'traces'; break;
-    default: html = pageDashboard(q); nav = 'dashboard';
+    default: html = demoBanner() + pageDashboard(q); nav = 'dashboard';
   }
   renderNav(nav);
   main.innerHTML = html;
@@ -1328,6 +1360,9 @@ document.addEventListener('click', e => {
     if (Store.mode === 'api' && API_WRITE_ACTIONS.includes(act)) { closeModal(); toast('Live data is read-only here. Create suites and runs through the API or SDK.'); return; }
     switch (act) {
       case 'api-settings': modalApiSettings(); break;
+      case 'request-access': modalRequestAccess(); break;
+      case 'send-access-request': sendAccessRequest(); break;
+      case 'dismiss-banner': try { localStorage.setItem(BANNER_LS, '1'); } catch (e) {} route(); break;
       case 'api-save': saveApiSettings(); break;
       case 'api-disconnect': disconnectApi(); break;
       case 'refresh-data': Api.refresh().then(() => toast('Data refreshed')).catch(err => toast(err.message)); break;

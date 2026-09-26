@@ -31,6 +31,10 @@ Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste 
 - Create more projects and keys with `POST /admin/projects` and `POST /admin/projects/{id}/keys`, using `Authorization: Bearer <admin key>`. Keys are stored as hashes and shown once.
 - Tests: `cd backend && pip install pytest && python -m pytest`
 
+## Public demo and private beta
+
+Deployed with the `Dockerfile`, visitors see the sample data and can request access. You approve requests with `python -m app.manage approve <id>`, which creates their project and API key. See `docs/BETA.md` for the operator guide, configuration and limits.
+
 ## Python SDK
 
 ```

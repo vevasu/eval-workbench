@@ -168,3 +168,29 @@ def test_short_lived_script_still_delivers_its_trace(server):
     subprocess.run([sys.executable, "-c", script], check=True, timeout=60)
     runs = _call(base, "GET", "/runs?suite_id=exit-test", key=key)
     assert runs and _call(base, "GET", f"/runs/{runs[0]['id']}", key=key)["results"][0]["actual"] == "done"
+
+
+def test_post_without_a_body_still_sends_one(tmp_path):
+    """Google Cloud Run answers 411 to a POST with no Content-Length, which broke run completion."""
+    import http.server
+    import threading
+
+    seen = {}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen["length"] = self.headers.get("Content-Length")
+            seen["body"] = self.rfile.read(int(seen["length"] or 0))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    Client(base_url=f"http://127.0.0.1:{srv.server_port}", api_key="k")._request("POST", "/runs/x/complete")
+    srv.shutdown()
+    assert seen["length"] == "2" and seen["body"] == b"{}"
