@@ -67,6 +67,24 @@ gcloud run deploy eval-workbench --source . --region us-central1
 
 The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, which is where beta users install the SDK from. When you change the SDK version, update `SDK_VERSION` in `frontend/index.html` and the wheel name in `backend/app/manage.py` too.
 
+## Backups and restoring
+
+The database relies on Neon's built-in point-in-time restore: Neon keeps a history of every change for a restore window set by your plan (short on the free plan, longer on paid plans). Check it in the Neon console under **Settings**, then **Storage** (history retention), and raise it if the window is shorter than the time you'd take to notice a problem.
+
+To restore after a bad change or accidental deletion:
+
+1. In the Neon console, open the project, then **Branches**, then **Restore** on the main branch, and pick a time just before the problem. Neon keeps the pre-restore state as a backup branch, so a restore can itself be undone.
+2. If the connection string changed (for example, you restored into a new branch instead), update the secret and redeploy:
+   ```
+   gcloud secrets versions add eval-workbench-db --data-file=<file with the new DATABASE_URL>
+   gcloud run deploy eval-workbench --source . --region us-central1
+   ```
+3. Open the site with a beta key and check the data is back.
+
+A restore rolls back the whole database, including access requests and projects created after that time. Anything newer is lost, so tell affected users.
+
+Before a risky change (a schema migration, a bulk delete), take a manual snapshot first: in Neon, create a branch from the main branch named after the date and change. It costs nothing until it diverges, and you can delete it once you are sure.
+
 ## What beta users do
 
 1. You send them the key and your Workbench address (`approve` prints the message).
@@ -76,4 +94,4 @@ The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, 
 
 ## Before you charge anyone
 
-Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, terms of service, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.
+Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, terms of service, database migrations, and pagination for large histories. The current allowances are flat beta limits, not plans.
