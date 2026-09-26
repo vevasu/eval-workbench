@@ -8,6 +8,10 @@ COPY backend backend
 COPY frontend frontend
 COPY data data
 
+# Host the SDK for beta users: they install it straight from this site (no PyPI needed).
+COPY sdk/python sdk/python
+RUN pip wheel --no-deps sdk/python -w frontend/sdk && rm -rf sdk
+
 ENV EVAL_WORKBENCH_ENV=production PYTHONUNBUFFERED=1
 WORKDIR /app/backend
 EXPOSE 8000

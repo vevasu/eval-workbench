@@ -9,5 +9,6 @@
 **/tests
 **/.pytest_cache
 examples
-sdk
 docs
+**/*.egg-info
+**/build

@@ -18,7 +18,7 @@ If `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` are in `.env`, every story 
 
 ## Evaluate and trace it with Eval Workbench
 
-1. Start the Workbench backend (see the repository README) and install the SDK: `pip install -e ../../sdk/python`.
+1. Start the Workbench backend (see the repository README) and install the SDK: `pip install -e ../../sdk/python`, or from a hosted Workbench as shown on its **Get started** page.
 2. Put `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` in `.env`.
 3. Run the suite:
 

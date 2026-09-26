@@ -15,7 +15,8 @@ Long term goal: a public, bring-your-own-key product in the same space as LangSm
 - `backend/` is a FastAPI + SQLModel (SQLite) service: projects and hashed API keys, write API, server-side scoring in `app/scoring.py` (a port of the Evaluators module, tested against every result in `sample-data.json`), and `GET /state`, which returns everything in the `sample-data.json` shape for the web app. Suites, cases and runs are keyed by `(project_id, id)`. It also serves `frontend/`.
 - `sdk/python/` is the client (`Client.run_suite`, `@trace`, `span`). `examples/story-generator` is an OpenAI app evaluated through it.
 - The frontend has two modes. Demo mode uses localStorage as above. API mode is chosen in the sidebar (URL and key kept in `localStorage` under `eval-workbench.api.v1`) and loads `GET /state` into the same `Store.state` shape, so all views are unchanged; write actions are blocked there (`API_WRITE_ACTIONS`). Simulated, recorded and live-model runs exist only in demo mode.
-- Private beta support: public `POST /access-requests`, operator approval (`python -m app.manage`), per-project allowances and size limits (`app/limits.py`, `app/settings.py`), rate limits (`app/ratelimit.py`), and `EVAL_WORKBENCH_ENV=production`. See `docs/BETA.md`. The demo-mode banner and request form are in the frontend.
+- Private beta support: public `POST /access-requests`, operator approval (`python -m app.manage`), per-project allowances and size limits (`app/limits.py`, `app/settings.py`), rate limits (`app/ratelimit.py`), and `EVAL_WORKBENCH_ENV=production`. See `docs/BETA.md`. The demo-mode banner, request form and **Get started** page (`#/start`, integration guide) are in the frontend; `frontend/admin.html` is the operator page for approving requests.
+- Deployed on Google Cloud Run (`eval-workbench`, us-central1, Neon Postgres): https://eval-workbench-5lofnwh6hq-uc.a.run.app. The Docker build serves the SDK wheel at `/sdk/`; keep `SDK_VERSION` in `index.html` and the wheel name in `app/manage.py` in step with `sdk/python`. See `docs/BETA.md`.
 - Built so far: phases 0 to 6 of `docs/BUILD_PLAN.md`. Phase 7 (CI integration) is next.
 
 ## How to work on this project
@@ -44,7 +45,7 @@ The script in `frontend/index.html` is split into modules, each marked by a `/* 
 | Charts | Hand-written SVG line chart, bar lists, pass/fail/review bar | |
 | Views | One render function per page, hash router `route()`, delegated events | |
 
-Pages and routes: `#/dashboard`, `#/suites`, `#/suites/:id`, `#/run`, `#/cases`, `#/cases/:suiteId/:caseId`, `#/results`, `#/results/:runId`, `#/compare?suite&a&b`, `#/traces`, `#/trace/:runId/:caseId`. Filters live in the URL query string.
+Pages and routes: `#/dashboard`, `#/start`, `#/suites`, `#/suites/:id`, `#/run`, `#/cases`, `#/cases/:suiteId/:caseId`, `#/results`, `#/results/:runId`, `#/compare?suite&a&b`, `#/traces`, `#/trace/:runId/:caseId`. Filters live in the URL query string.
 
 Notes:
 - The `live` target and the Claude `downloads` capability only work when the page is published inside claude.ai. Outside claude.ai, `window.claude` doesn't exist, so the live target is disabled and downloads use a normal browser download. Don't remove this code; it's harmless.

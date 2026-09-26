@@ -59,4 +59,4 @@ To add an agent (say a fact-checker), subclass `Agent` in `agents.py`, add its p
 
 ## Tracing with Eval Workbench (optional)
 
-Install the SDK (`pip install -e ../../sdk/python`) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` in `.env`. Each run is then sent to the Workbench as a trace, with one span per agent and one per model call, under **Writer & Critic (live)**. It is scored by a guardrail check: the final text must not contain buzzwords such as "leverage" or "synergy". Without the SDK or keys, the app runs normally.
+Install the SDK (`pip install -e ../../sdk/python`, or from a hosted Workbench as shown on its **Get started** page) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` in `.env`. Each run is then sent to the Workbench as a trace, with one span per agent and one per model call, under **Writer & Critic (live)**. It is scored by a guardrail check: the final text must not contain buzzwords such as "leverage" or "synergy". Without the SDK or keys, the app runs normally.

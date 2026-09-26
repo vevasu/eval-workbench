@@ -33,12 +33,13 @@ Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste 
 
 ## Public demo and private beta
 
-Deployed with the `Dockerfile`, visitors see the sample data and can request access. You approve requests with `python -m app.manage approve <id>`, which creates their project and API key. See `docs/BETA.md` for the operator guide, configuration and limits.
+Live at https://eval-workbench-5lofnwh6hq-uc.a.run.app (Google Cloud Run, Neon Postgres). Visitors see the sample data, a **Get started** guide, and can request access. You approve requests at `/admin.html` or with `python -m app.manage approve <id>`, which creates their project and API key. See `docs/BETA.md` for the operator guide, deployment, configuration and limits.
 
 ## Python SDK
 
 ```
-pip install -e sdk/python
+pip install -e sdk/python     # from this repository
+pip install https://eval-workbench-5lofnwh6hq-uc.a.run.app/sdk/eval_workbench-0.1.0-py3-none-any.whl   # or from the hosted Workbench
 ```
 
 ```python
@@ -63,7 +64,7 @@ The SDK runs each test case through your function in your own process, times it,
 
 ## Repository
 
-- `frontend/` the web app (single file, no build step)
+- `frontend/` the web app (single file, no build step) and `admin.html`, the operator page for access requests
 - `backend/` FastAPI + SQLite service: API keys, write API, server-side scoring, seed command, tests
 - `sdk/python/` Python client with `run_suite`, `@trace` and `span()`
 - `examples/` example applications that use the SDK

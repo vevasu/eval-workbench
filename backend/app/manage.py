@@ -23,7 +23,7 @@ from .settings import limits
 QUICKSTART = """
 Send this to the requester:
 
-  pip install -e <path to>/sdk/python
+  pip install <your Workbench address>/sdk/eval_workbench-0.1.0-py3-none-any.whl
   set EVAL_WORKBENCH_URL=<your Workbench address>
   set EVAL_WORKBENCH_API_KEY={key}
 

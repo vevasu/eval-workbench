@@ -32,3 +32,4 @@ Thumbs.db
 # Local secrets used only for deployment
 .neon-url
 .env.production
+frontend/sdk/

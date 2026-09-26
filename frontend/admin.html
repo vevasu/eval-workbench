@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Beta access requests · Eval Workbench</title>
+<style>
+  :root { --bg:#F2F4F3; --card:#fff; --ink:#16212C; --muted:#5b667a; --line:#D9DFDD; --brand:#1F3A68; --ok:#16825A; --err:#C13A22; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0E141A; --card:#151D25; --ink:#E4E9EE; --muted:#A7B2BC; --line:#26323D; --brand:#7aa2f7; --ok:#46C08E; --err:#F17A60; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; padding:20px 16px 40px; }
+  main { max-width:960px; margin:0 auto; } h1 { font-size:22px; margin:0 0 4px; } p.sub { color:var(--muted); margin:0 0 16px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-weight:600; font-size:13px; margin-bottom:4px; }
+  input { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit; }
+  button { font:inherit; padding:7px 13px; border-radius:8px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; font-weight:600; } @media (prefers-color-scheme: dark) { button.primary { color:#0E141A; } }
+  button.ok { border-color:var(--ok); color:var(--ok); font-weight:600; } button:disabled { opacity:.55; cursor:wait; }
+  :focus-visible { outline:3px solid var(--brand); outline-offset:2px; }
+  .row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; } .row > div { flex:1; min-width:240px; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:top; font-size:14px; } th { color:var(--muted); font-size:12.5px; }
+  .use { max-width:320px; color:var(--muted); white-space:pre-wrap; word-break:break-word; } .tag { font-size:12px; font-weight:700; text-transform:uppercase; }
+  .tag.pending { color:#A86F0E; } .tag.approved { color:var(--ok); } .tag.rejected { color:var(--muted); }
+  .err { color:var(--err); } .muted { color:var(--muted); } .tabs { display:flex; gap:6px; margin-bottom:12px; } .tabs button.on { background:var(--brand); border-color:var(--brand); color:#fff; } @media (prefers-color-scheme: dark) { .tabs button.on { color:#0E141A; } }
+  pre { white-space:pre-wrap; word-break:break-word; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; font:13px/1.5 ui-monospace, Consolas, monospace; margin:8px 0; }
+  .issued { border:2px solid var(--ok); } [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Beta access requests</h1>
+  <p class="sub">Only someone with the admin key can see anything here. The key stays in this browser tab and is forgotten when you close it.</p>
+
+  <section class="panel" id="login">
+    <div class="row"><div><label for="key">Admin key</label><input id="key" type="password" autocomplete="off" placeholder="Paste EVAL_WORKBENCH_ADMIN_KEY"></div><button class="primary" id="load">Load requests</button></div>
+    <p class="err" id="loginErr" hidden></p>
+  </section>
+
+  <section class="panel issued" id="issued" hidden>
+    <b>Approved. Send this to the requester now.</b> <span class="muted">The key is shown only once and cannot be recovered; only its hash is stored.</span>
+    <pre id="message"></pre>
+    <button class="primary" id="copy">Copy message</button> <button id="closeIssued">Done</button>
+  </section>
+
+  <section class="panel" id="list" hidden>
+    <div class="tabs" id="tabs"></div>
+    <div id="empty" class="muted" hidden></div>
+    <div style="overflow-x:auto"><table id="table"><thead><tr><th>#</th><th>Requested</th><th>Who</th><th>What they will evaluate</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+    <p class="err" id="listErr" hidden></p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let adminKey = sessionStorage.getItem('ewb-admin') || '', filter = 'pending', rows = [];
+
+async function api(path, method = 'GET') {
+  // POSTs always carry a body: some hosts refuse an empty one.
+  const res = await fetch(path, { method, headers: { Authorization: 'Bearer ' + adminKey, 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : '{}' });
+  let data = null; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(res.status === 401 ? 'That admin key was not accepted.' : res.status === 429 ? 'Too many attempts. Wait a minute and try again.' : (data && data.detail) || 'Request failed (' + res.status + ').');
+  return data;
+}
+
+function cell(tr, text, cls) { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; tr.append(td); return td; }
+
+function render() {
+  const tabs = $('tabs'); tabs.replaceChildren();
+  ['pending', 'approved', 'rejected', 'all'].forEach(f => {
+    const b = document.createElement('button'); b.textContent = f[0].toUpperCase() + f.slice(1) + ' (' + rows.filter(r => f === 'all' || r.status === f).length + ')';
+    if (f === filter) b.className = 'on'; b.onclick = () => { filter = f; render(); }; tabs.append(b);
+  });
+  const shown = rows.filter(r => filter === 'all' || r.status === filter).sort((a, b) => b.createdAt - a.createdAt);
+  $('empty').hidden = shown.length > 0; $('empty').textContent = 'Nothing here.'; $('table').hidden = !shown.length;
+  const body = $('table').tBodies[0]; body.replaceChildren();
+  shown.forEach(r => {
+    const tr = document.createElement('tr');
+    cell(tr, r.id); cell(tr, new Date(r.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }));
+    const who = cell(tr, r.email + (r.name ? '\n' + r.name : '')); who.style.whiteSpace = 'pre-wrap';
+    cell(tr, r.useCase || '(not given)', 'use'); cell(tr, r.status + (r.projectId ? ' · ' + r.projectId : ''), 'tag ' + r.status);
+    const act = document.createElement('td');
+    if (r.status === 'pending') {
+      const ok = document.createElement('button'); ok.className = 'ok'; ok.textContent = 'Approve';
+      const no = document.createElement('button'); no.textContent = 'Reject'; no.style.marginLeft = '6px';
+      ok.onclick = () => decide(r, 'approve', ok); no.onclick = () => { if (confirm('Reject ' + r.email + '?')) decide(r, 'reject', no); };
+      act.append(ok, no);
+    }
+    tr.append(act); body.append(tr);
+  });
+}
+
+async function load() {
+  $('loginErr').hidden = true;
+  try { rows = await api('/admin/access-requests'); } catch (e) { $('loginErr').hidden = false; $('loginErr').textContent = e.message; $('list').hidden = true; return; }
+  sessionStorage.setItem('ewb-admin', adminKey); $('list').hidden = false; $('listErr').hidden = true; render();
+}
+
+async function decide(r, action, btn) {
+  btn.disabled = true; $('listErr').hidden = true;
+  try {
+    const out = await api('/admin/access-requests/' + r.id + '/' + action, 'POST');
+    if (action === 'approve') showIssued(out);
+    await load();
+  } catch (e) { btn.disabled = false; $('listErr').hidden = false; $('listErr').textContent = e.message; }
+}
+
+function showIssued(o) {
+  const site = location.origin;
+  $('message').textContent = `Hi,
+
+Your Eval Workbench beta access is ready.
+
+Site: ${site}
+Your project: ${o.projectId}
+Your API key: ${o.key}   (keep it private)
+
+Get set up (Python 3.9+):
+
+  pip install ${site}/sdk/eval_workbench-0.1.0-py3-none-any.whl
+
+  Windows:        set EVAL_WORKBENCH_URL=${site}
+                  set EVAL_WORKBENCH_API_KEY=${o.key}
+  Mac and Linux:  export EVAL_WORKBENCH_URL=${site}
+                  export EVAL_WORKBENCH_API_KEY=${o.key}
+
+Then follow the "Get started" page on the site for code you can paste in. To see your data, open the site,
+choose "I have a key" and paste the key above.
+
+Tell me how it goes.`;
+  $('issued').hidden = false; $('issued').scrollIntoView({ block: 'start' });
+}
+
+$('load').onclick = () => { adminKey = $('key').value.trim(); if (!adminKey) { $('loginErr').hidden = false; $('loginErr').textContent = 'Paste the admin key first.'; return; } load(); };
+$('key').addEventListener('keydown', e => { if (e.key === 'Enter') $('load').click(); });
+$('copy').onclick = async () => { try { await navigator.clipboard.writeText($('message').textContent); $('copy').textContent = 'Copied'; } catch (e) { $('copy').textContent = 'Select the text and copy it'; } };
+$('closeIssued').onclick = () => { $('issued').hidden = true; $('message').textContent = ''; };
+if (adminKey) load();
+</script>
+</body>
+</html>

@@ -70,6 +70,9 @@ button,input,select,textarea{font:inherit;color:inherit}
 .banner{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--brand,#1F3A68);border-radius:10px;padding:14px 16px;margin:0 0 16px}
 .banner h2{margin:0 0 4px;font-size:16px}.banner p{margin:0 0 10px;color:var(--ink-2);font-size:14px}.banner .actions{display:flex;gap:8px;flex-wrap:wrap}
 .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.codeblock{position:relative}.codeblock .btn{position:absolute;top:8px;right:8px}.codeblock .pre{padding-right:70px;white-space:pre;word-break:normal;overflow:auto}
+.steps .panel h2{display:flex;gap:10px;align-items:center}.steps .num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--ink);color:var(--surface);font-size:13px;flex:none}
+.cta-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
 
 main{padding:28px 32px 60px;min-width:0;outline:none}
 .crumbs{font-size:13px;color:var(--ink-3);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -619,13 +622,68 @@ const Api = {
   async connect(cfg) { const s = await this.fetchState(cfg); Store.state = s; Store.mode = 'api'; this.project = s.project || null; },
   async refresh() { const cfg = this.config(); if (cfg && Store.mode === 'api') { Store.state = await this.fetchState(cfg); route(); } }
 };
+const SDK_VERSION = '0.1.0';
+function codeBlock(id, text) { return `<div class="codeblock"><pre class="pre" id="${id}">${esc(text)}</pre><button class="btn sm" data-action="copy" data-target="${id}">Copy</button></div>`; }
+function pageStart() {
+  const base = (Api.config() || {}).url || Api.defaultUrl();
+  const connected = Store.mode === 'api';
+  const wheel = `${base}/sdk/eval_workbench-${SDK_VERSION}-py3-none-any.whl`;
+  const install = `pip install ${wheel}`;
+  const env = `# Windows:  set NAME=value        Mac and Linux:  export NAME=value\nEVAL_WORKBENCH_URL=${base}\nEVAL_WORKBENCH_API_KEY=<the key we email you>`;
+  const live = `from eval_workbench import Client, trace
+
+client = Client()   # reads the two settings above
+
+@trace(name="llm.generate", kind="llm")      # each traced function becomes a step in the trace
+def call_model(prompt):
+    return my_llm(prompt)                    # your own model call goes here
+
+def handle_request(user_input):
+    # Runs your code, then sends the request, its steps and its timing to the Workbench in the background.
+    return client.observe("support-bot", call_model, user_input,
+                          suite_name="Support bot", version="v1", model="gpt-4o",
+                          checks=[{"type": "not_contains", "values": ["I cannot help"]}])`;
+  const suite = `import json
+from eval_workbench import Client
+
+client = Client()
+suite = client.import_suite(json.dumps({          # create the suite once
+    "name": "Refund questions",
+    "cases": [
+        {"input": "How long do refunds take?", "checks": [{"type": "contains_all", "values": ["5 to 7"]}]},
+        {"input": "Can I get cash back?",      "checks": [{"type": "contains_any", "values": ["original payment"]}]},
+    ],
+}))
+
+def my_app(text):                                # your application: question in, answer out
+    return call_my_model(text)
+
+result = client.run_suite(suite["id"], my_app, version="v1", model="gpt-4o", note="baseline")
+print(result.summary["passRate"], result.url)    # open the link to see the results`;
+  const cta = connected
+    ? `<a class="btn primary" href="#/traces">Open my traces</a><a class="btn" href="#/suites">My suites</a>`
+    : `<button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I have a key</button>`;
+  return head('Get started', 'Send your app\'s results to the Workbench and see whether it is getting better, where it fails and why. Five steps, about ten minutes.', cta) + `<div class="steps">
+    <section class="panel"><h2>What you get</h2><p class="hint" style="margin:0">Your app sends its inputs, outputs, timings and steps here through a small Python package. The Workbench scores each result with plain checks you choose, such as "must include", "must not include" or "valid JSON". It never calls a model itself, so it uses your own model account only through your own code. You then see pass rates over time, what changed between versions, which failures repeat, and a trace of every request.</p></section>
+    <section class="panel"><h2><span class="num">1</span>Get an API key</h2><p class="hint">${connected ? 'You are connected, so you already have a key. Keep it private.' : 'The beta is invite-only. Request access and we will email you a key for your own private project.'}</p><div class="cta-row">${connected ? '' : '<button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I already have a key</button>'}</div></section>
+    <section class="panel"><h2><span class="num">2</span>Install the package</h2><p class="hint">Python 3.9 or newer. It has no other dependencies.</p>${codeBlock('c-install', install)}</section>
+    <section class="panel"><h2><span class="num">3</span>Set two environment variables</h2>${codeBlock('c-env', env)}</section>
+    <section class="panel"><h2><span class="num">4</span>Send data</h2><p class="hint">Choose the style that fits. You can use both.</p>
+      <h3 style="margin:14px 0 4px;font-size:15px">A. Watch live traffic</h3><p class="hint">Wrap the function that handles a real request. Each request appears under Traces with its steps. It never slows or breaks your app: if the Workbench is unreachable, the trace is dropped and your app carries on.</p>${codeBlock('c-live', live)}
+      <h3 style="margin:18px 0 4px;font-size:15px">B. Run a test suite</h3><p class="hint">Define test cases with checks, then run your app over all of them for each new version. Compare versions on the Compare runs page to catch regressions.</p>${codeBlock('c-suite', suite)}</section>
+    <section class="panel"><h2><span class="num">5</span>Read the results here</h2><p class="hint" style="margin:0">Open <b>Traces</b> for individual requests, <b>Results</b> for each run, and <b>Compare runs</b> to see what got better or worse between versions. Every number links down to the request behind it.</p></section>
+    <section class="panel"><h2>Checks you can use</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Check</th><th>Passes when</th></tr></thead><tbody>
+      <tr><td class="mono">contains_all</td><td>the answer includes every listed value</td></tr><tr><td class="mono">contains_any</td><td>it includes at least one</td></tr><tr><td class="mono">not_contains</td><td>it includes none of the listed values</td></tr>
+      <tr><td class="mono">regex</td><td>it matches a pattern</td></tr><tr><td class="mono">json_keys</td><td>it contains valid JSON with the listed keys</td></tr><tr><td class="mono">max_length</td><td>it is no longer than a limit</td></tr><tr><td class="mono">human</td><td>always goes to a person for review</td></tr></tbody></table></div></section>
+    ${connected ? '' : `<section class="panel"><h2>Ready to try it on your app?</h2><p class="hint" style="margin:0">Tell us what you are building and we will send a key.</p><div class="cta-row"><button class="btn primary" data-action="request-access">Request beta access</button></div></section>`}</div>`;
+}
 const BANNER_LS = 'eval-workbench.banner.dismissed';
 function demoBanner() {
   if (Store.mode !== 'demo') return '';
   try { if (localStorage.getItem(BANNER_LS)) return ''; } catch (e) {}
   return `<section class="banner" aria-label="About this demo"><h2>You're looking at sample data</h2>
     <p>Eval Workbench shows whether your AI app is getting better, where it fails and why. This demo is a story-generation app tested across five versions. The Workbench never calls a model itself: your app sends it results and traces through a small SDK, and it scores and tracks them.</p>
-    <div class="actions"><button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I have a key</button><button class="btn" data-action="dismiss-banner">Dismiss</button></div></section>`;
+    <div class="actions"><button class="btn primary" data-action="request-access">Request beta access</button><a class="btn" href="#/start">How to integrate</a><button class="btn" data-action="api-settings">I have a key</button><button class="btn" data-action="dismiss-banner">Dismiss</button></div></section>`;
 }
 function modalRequestAccess() {
   openModal(`<h2>Request beta access</h2><p class="hint">The private beta is invite-only. Tell us what you are building and we will email you a key to connect your own app.</p>
@@ -798,6 +856,7 @@ const pipelineLabel = p => ({ chat: 'Chat assistant', tools: 'Tool-using agent',
 /* ---------------- Views ---------------- */
 const NAV = [
   ['dashboard', 'Dashboard', '<path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/>'],
+  ['start', 'Get started', '<path d="M5 12h14M13 6l6 6-6 6"/>'],
   ['suites', 'Evaluation suites', '<path d="M4 5h16M4 12h16M4 19h10"/>'],
   ['run', 'Run evaluation', '<path d="M7 4l12 8-12 8z"/>'],
   ['cases', 'Test cases', '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>'],
@@ -1334,6 +1393,7 @@ function route() {
   const q = Object.fromEntries(new URLSearchParams(qstr || ''));
   const main = $('#main'); let html = ''; let nav = parts[0] || 'dashboard';
   switch (parts[0]) {
+    case 'start': html = pageStart(); break;
     case 'suites': html = parts[1] ? pageSuite(parts[1]) : pageSuites(); break;
     case 'run': html = pageRun(q); break;
     case 'cases': html = parts[2] ? pageCase(parts[1], parts[2]) : pageCases(q); break;
@@ -1361,6 +1421,7 @@ document.addEventListener('click', e => {
     switch (act) {
       case 'api-settings': modalApiSettings(); break;
       case 'request-access': modalRequestAccess(); break;
+      case 'copy': { const t = document.getElementById(a.dataset.target); if (t) { navigator.clipboard.writeText(t.textContent).then(() => { a.textContent = 'Copied'; setTimeout(() => { a.textContent = 'Copy'; }, 1500); }).catch(() => toast('Select the text and copy it manually')); } break; }
       case 'send-access-request': sendAccessRequest(); break;
       case 'dismiss-banner': try { localStorage.setItem(BANNER_LS, '1'); } catch (e) {} route(); break;
       case 'api-save': saveApiSettings(); break;

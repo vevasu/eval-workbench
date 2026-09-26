@@ -19,6 +19,8 @@ python -m app.manage newkey <project>  # another key for the same project
 python -m app.manage revoke <key id>   # key ids are listed by GET /admin/projects/<project>/keys
 ```
 
+Or open `<your Workbench address>/admin.html`, paste the admin key, and approve or reject requests in the browser. It shows the message to send, with the key, once.
+
 The same actions exist as admin API calls (`/admin/access-requests`, `/admin/projects/...`) using `Authorization: Bearer <admin key>`.
 
 Keys are stored as hashes. If someone loses theirs, revoke it and issue a new one.
@@ -45,12 +47,20 @@ Never set `EVAL_WORKBENCH_DEV_KEY` on a shared or public server.
 
 The `Dockerfile` in the repository root builds one image that serves the API and the web app. Build context is the repository root. On the host, set `EVAL_WORKBENCH_ADMIN_KEY`, `DATABASE_URL` (Postgres with persistent storage), `TRUST_PROXY=1`, and put HTTPS in front of it (most hosts do this for you). The image reads `PORT` if the host sets it.
 
-Not yet verified: running against Postgres and building the Docker image have not been tested here. Do a trial deploy and run through the flow above before inviting anyone.
+### Current deployment
+
+Live on Google Cloud Run: service `eval-workbench`, region `us-central1`, at https://eval-workbench-5lofnwh6hq-uc.a.run.app. The database is Neon Postgres. `DATABASE_URL` and `EVAL_WORKBENCH_ADMIN_KEY` come from Secret Manager (secrets `eval-workbench-db` and `eval-workbench-admin`); `EVAL_WORKBENCH_ENV=production` and `TRUST_PROXY=1` are plain environment variables. To redeploy from the repository root:
+
+```
+gcloud run deploy eval-workbench --source . --region us-central1
+```
+
+The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, which is where beta users install the SDK from. When you change the SDK version, update `SDK_VERSION` in `frontend/index.html` and the wheel name in `backend/app/manage.py` too.
 
 ## What beta users do
 
 1. You send them the key and your Workbench address (`approve` prints the message).
-2. They install the SDK (`pip install -e sdk/python` from the repository for now) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
+2. They install the SDK from your site (`pip install <your Workbench address>/sdk/eval_workbench-0.1.0-py3-none-any.whl`; the **Get started** page shows the exact command) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
 3. They run a suite with `client.run_suite(...)` or send live traffic with `client.observe(...)`.
 4. They open your site, choose **I have a key**, paste it, and see only their own project.
 
