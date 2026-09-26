@@ -4,6 +4,7 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -81,6 +82,11 @@ class Client:
             if e.status == 404:
                 return None
             raise
+
+    def delete_project(self, confirm: str) -> dict:
+        """Permanently delete this key's project: every suite, run, result and trace, and the key itself.
+        Pass the project id as `confirm`. Returns how many rows of each kind were removed."""
+        return self._request("DELETE", "/project?confirm=" + urllib.parse.quote(confirm))
 
     def import_suite(self, content: str, format: str = "json", name: Optional[str] = None) -> dict:
         """Create a suite from JSON or CSV text (same format as the Import suite dialog)."""

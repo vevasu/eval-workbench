@@ -620,6 +620,14 @@ const Api = {
     return s;
   },
   async connect(cfg) { const s = await this.fetchState(cfg); Store.state = s; Store.mode = 'api'; this.project = s.project || null; },
+  async deleteProject(confirm) {
+    const cfg = this.config(); let res;
+    try { res = await fetch(cfg.url.replace(/\/+$/, '') + '/project?confirm=' + encodeURIComponent(confirm), { method: 'DELETE', headers: { Authorization: 'Bearer ' + cfg.key } }); }
+    catch (e) { throw new Error('Could not reach the API at ' + cfg.url); }
+    let data = null; try { data = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error((data && data.detail) || 'The API returned an error (' + res.status + ').');
+    return data;
+  },
   async refresh() { const cfg = this.config(); if (cfg && Store.mode === 'api') { Store.state = await this.fetchState(cfg); route(); } }
 };
 const SDK_VERSION = '0.1.0';
@@ -718,7 +726,21 @@ function modalApiSettings(err) {
     <div class="form-grid"><label class="field full"><span>API base URL</span><input type="text" id="api-url" value="${esc(c.url || Api.defaultUrl())}" autocomplete="off"></label>
     <label class="field full"><span>API key</span><input type="password" id="api-key" value="${esc(c.key || '')}" placeholder="ewb_…" autocomplete="off"><small>Create one with POST /admin/projects/&lt;project&gt;/keys, or use the demo key printed by <span class="mono">python -m app.seed</span>.</small></label></div>
     <p class="err" id="api-err" ${err ? '' : 'hidden'}>${esc(err || '')}</p>
-    <div class="modal-foot">${c.key ? '<button class="btn" data-action="api-disconnect">Use demo data</button>' : ''}<button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="api-save">Connect</button></div>`);
+    <div class="modal-foot">${Store.mode === 'api' && Api.project ? '<button class="btn danger" data-action="delete-project">Delete my project</button>' : ''}${c.key ? '<button class="btn" data-action="api-disconnect">Use demo data</button>' : ''}<button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="api-save">Connect</button></div>`);
+}
+function modalDeleteProject() {
+  const p = Api.project;
+  openModal(`<h2>Delete project ${esc(p.name)}</h2><p class="hint">This permanently deletes every suite, test case, run, result and trace in this project, all of its API keys, and your access request with your email address. It cannot be undone.</p>
+    <div class="form-grid"><label class="field full"><span>Type <b class="mono">${esc(p.id)}</b> to confirm</span><input type="text" id="del-confirm" autocomplete="off"></label></div>
+    <p class="err" id="del-err" hidden></p>
+    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancel</button><button class="btn danger" data-action="confirm-delete-project">Delete everything</button></div>`);
+}
+async function deleteProject() {
+  const err = m => { const e = $('#del-err'); e.hidden = false; e.textContent = m; };
+  const typed = $('#del-confirm').value.trim();
+  if (typed !== Api.project.id) return err('Type the project id exactly as shown.');
+  try { await Api.deleteProject(typed); } catch (e) { return err(e.message); }
+  await disconnectApi(); toast('Project deleted. All its data is gone');
 }
 async function saveApiSettings() {
   const cfg = { url: $('#api-url').value.trim(), key: $('#api-key').value.trim() };
@@ -1426,6 +1448,8 @@ document.addEventListener('click', e => {
       case 'dismiss-banner': try { localStorage.setItem(BANNER_LS, '1'); } catch (e) {} route(); break;
       case 'api-save': saveApiSettings(); break;
       case 'api-disconnect': disconnectApi(); break;
+      case 'delete-project': modalDeleteProject(); break;
+      case 'confirm-delete-project': deleteProject(); break;
       case 'refresh-data': Api.refresh().then(() => toast('Data refreshed')).catch(err => toast(err.message)); break;
       case 'close-modal': closeModal(); break;
       case 'new-suite': modalSuite(); break;

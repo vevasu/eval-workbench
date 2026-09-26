@@ -97,3 +97,43 @@ def test_production_mode_turns_off_dev_shortcuts(client, monkeypatch):
     assert client.get("/dev-connect", headers={"Host": "127.0.0.1:8000"}).status_code == 404
     assert client.get("/health").headers["x-content-type-options"] == "nosniff"
     assert limits()["max_results"] == 10000  # documented default
+
+
+def _approved(client, admin, email, name):
+    client.post("/access-requests", json={"email": email, "name": name})
+    rid = next(p["id"] for p in client.get("/admin/access-requests?status=pending", headers=admin).json() if p["email"] == email)
+    out = client.post(f"/admin/access-requests/{rid}/approve", headers=admin).json()
+    return out["projectId"], {"Authorization": f"Bearer {out['key']}"}
+
+
+def test_a_user_can_delete_their_project_and_everything_in_it(client, admin, auth):
+    pid, theirs = _approved(client, admin, "leaving@example.com", "Leaving Ltd")
+    spans = [{"name": "llm.generate", "kind": "llm", "dur": 3}]
+    assert client.post("/ingest", headers=theirs, json=_trace(spans=spans)).status_code == 201
+    demo_before = client.get("/usage", headers=auth).json()["executions"]
+
+    assert client.delete("/project", headers=theirs).status_code == 400            # needs the project id to confirm
+    assert client.delete("/project?confirm=demo", headers=theirs).status_code == 400
+    out = client.delete(f"/project?confirm={pid}", headers=theirs).json()
+    assert out["deleted"] == {"spans": 1, "results": 1, "runs": 1, "cases": 0, "suites": 1, "keys": 1, "accessRequests": 1, "projects": 1}
+
+    assert client.get("/state", headers=theirs).status_code == 401                 # their key went with it
+    emails = [r["email"] for r in client.get("/admin/access-requests", headers=admin).json()]
+    assert "leaving@example.com" not in emails
+    assert client.get("/usage", headers=auth).json()["executions"] == demo_before   # other projects untouched
+
+
+def test_the_operator_can_delete_a_project_or_a_request(client, admin):
+    pid, _ = _approved(client, admin, "gone@example.com", "Gone Inc")
+    assert client.delete(f"/admin/projects/{pid}").status_code == 401
+    assert client.delete(f"/admin/projects/{pid}", headers=admin).json()["deleted"]["projects"] == 1
+    assert client.delete(f"/admin/projects/{pid}", headers=admin).status_code == 404
+
+    client.post("/access-requests", json={"email": "forget-me@example.com"})
+    rid = next(p["id"] for p in client.get("/admin/access-requests", headers=admin).json() if p["email"] == "forget-me@example.com")
+    assert client.delete(f"/admin/access-requests/{rid}", headers=admin).status_code == 204
+    assert all(p["email"] != "forget-me@example.com" for p in client.get("/admin/access-requests", headers=admin).json())
+
+    pid2, _ = _approved(client, admin, "keeper@example.com", "Keeper")
+    rid2 = next(p["id"] for p in client.get("/admin/access-requests", headers=admin).json() if p["email"] == "keeper@example.com")
+    assert client.delete(f"/admin/access-requests/{rid2}", headers=admin).status_code == 409  # delete the project instead

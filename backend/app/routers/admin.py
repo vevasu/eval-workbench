@@ -4,6 +4,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
+from .. import beta
 from ..auth import hash_key, new_key, require_admin
 from ..db import get_session
 from ..models import ApiKey, Project, now_ms
@@ -31,6 +32,12 @@ def create_project(body: ProjectIn, session: Session = Depends(get_session)):
 @router.get("/projects")
 def list_projects(session: Session = Depends(get_session)):
     return [{"id": p.id, "name": p.name, "createdAt": p.created_at} for p in session.exec(select(Project)).all()]
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str, session: Session = Depends(get_session)):
+    """Permanently delete a project and all its data, keys and access request."""
+    return beta.delete_project(session, project_id)
 
 
 @router.post("/projects/{project_id}/keys", status_code=201)

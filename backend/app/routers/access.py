@@ -47,6 +47,11 @@ def approve_request(request_id: int, session: Session = Depends(get_session)):
     return beta.approve(session, request_id)
 
 
+@admin.delete("/{request_id}", status_code=204)
+def delete_request(request_id: int, session: Session = Depends(get_session)):
+    beta.delete_request(session, request_id)
+
+
 @admin.post("/{request_id}/reject")
 def reject_request(request_id: int, session: Session = Depends(get_session)):
     return beta.request_row(beta.reject(session, request_id))

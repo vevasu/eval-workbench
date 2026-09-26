@@ -4,10 +4,11 @@ import secrets
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from .auth import hash_key, new_key
-from .models import AccessRequest, ApiKey, Project, now_ms
+from .models import AccessRequest, ApiKey, Project, Result, Run, Span, Suite, TestCase, now_ms
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 
@@ -65,3 +66,36 @@ def reject(session: Session, request_id: int) -> AccessRequest:
 def request_row(r: AccessRequest) -> dict:
     return {"id": r.id, "email": r.email, "name": r.name, "useCase": r.use_case, "status": r.status,
             "projectId": r.project_id, "createdAt": r.created_at, "decidedAt": r.decided_at}
+
+
+def delete_project(session: Session, project_id: str) -> dict:
+    """Permanently delete a project and everything in it: suites, cases, runs, results, spans, keys, and the
+    access request (with its email) that created it. Returns how many rows of each kind were removed."""
+    if session.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    result_ids = select(Result.id).where(Result.project_id == project_id)
+    counts = {}
+    for label, stmt in [
+        ("spans", delete(Span).where(Span.result_id.in_(result_ids))),
+        ("results", delete(Result).where(Result.project_id == project_id)),
+        ("runs", delete(Run).where(Run.project_id == project_id)),
+        ("cases", delete(TestCase).where(TestCase.project_id == project_id)),
+        ("suites", delete(Suite).where(Suite.project_id == project_id)),
+        ("keys", delete(ApiKey).where(ApiKey.project_id == project_id)),
+        ("accessRequests", delete(AccessRequest).where(AccessRequest.project_id == project_id)),
+        ("projects", delete(Project).where(Project.id == project_id)),
+    ]:
+        counts[label] = session.exec(stmt).rowcount
+    session.commit()
+    return {"projectId": project_id, "deleted": counts}
+
+
+def delete_request(session: Session, request_id: int) -> None:
+    """Remove an access request and the email in it. Approved requests go with their project instead."""
+    req = session.get(AccessRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Access request not found")
+    if req.status == "approved" and req.project_id and session.get(Project, req.project_id):
+        raise HTTPException(status_code=409, detail=f"This request created project '{req.project_id}'. Delete the project instead; it removes the request too.")
+    session.delete(req)
+    session.commit()

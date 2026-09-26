@@ -17,6 +17,8 @@ python -m app.manage reject 3
 python -m app.manage projects          # every project with usage against its allowance
 python -m app.manage newkey <project>  # another key for the same project
 python -m app.manage revoke <key id>   # key ids are listed by GET /admin/projects/<project>/keys
+python -m app.manage delete-project <project>   # deletes the project and all its data; asks you to type its id
+python -m app.manage delete-request 3  # deletes a pending or rejected request and the email in it
 ```
 
 Or open `<your Workbench address>/admin.html`, paste the admin key, and approve or reject requests in the browser. It shows the message to send, with the key, once.
@@ -24,6 +26,10 @@ Or open `<your Workbench address>/admin.html`, paste the admin key, and approve 
 The same actions exist as admin API calls (`/admin/access-requests`, `/admin/projects/...`) using `Authorization: Bearer <admin key>`.
 
 Keys are stored as hashes. If someone loses theirs, revoke it and issue a new one.
+
+## Deleting data
+
+Users can delete their own project at any time: in the web app, **Settings**, then **Delete my project** (they type the project id to confirm), or `client.delete_project("<project id>")` in the SDK, or `DELETE /project?confirm=<project id>` with their key. This removes every suite, case, run, result and trace, all the project's keys, and the access request with their email. If someone asks you by email instead, run `delete-project` (or `DELETE /admin/projects/<project>`). For someone who was never approved, `delete-request` removes their email.
 
 ## Configuration
 
@@ -66,4 +72,4 @@ The image build also packages `sdk/python` as a wheel and serves it at `/sdk/`, 
 
 ## Before you charge anyone
 
-Still to build: self-serve signup, per-plan quotas and billing, retention and delete-my-data tools, privacy terms, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.
+Still to build: self-serve signup, per-plan quotas and billing, automatic retention limits, privacy terms, database migrations, backups, and pagination for large histories. The current allowances are flat beta limits, not plans.

@@ -194,3 +194,20 @@ def test_post_without_a_body_still_sends_one(tmp_path):
     Client(base_url=f"http://127.0.0.1:{srv.server_port}", api_key="k")._request("POST", "/runs/x/complete")
     srv.shutdown()
     assert seen["length"] == "2" and seen["body"] == b"{}"
+
+
+def test_delete_project_removes_everything_and_the_key(server):
+    base, _ = server
+    _call(base, "POST", "/admin/projects", {"name": "Short lived"})
+    key = _call(base, "POST", "/admin/projects/short-lived/keys", {"name": "t"})["key"]
+    client = Client(base_url=base, api_key=key, retries=0)
+    s = client.import_suite(json.dumps({"name": "Tmp", "cases": [{"input": "hi", "checks": [{"type": "contains_any", "values": ["hi"]}]}]}))
+    client.run_suite(s["id"], lambda text: text)
+    with pytest.raises(WorkbenchError) as e:
+        client.delete_project("wrong-id")
+    assert e.value.status == 400
+    out = client.delete_project("short-lived")
+    assert out["deleted"]["results"] == 1 and out["deleted"]["projects"] == 1
+    with pytest.raises(WorkbenchError) as e:
+        client.get_suite(s["id"])
+    assert e.value.status == 401

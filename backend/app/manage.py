@@ -6,6 +6,8 @@
     python -m app.manage projects            list projects with usage
     python -m app.manage newkey <project>    create another key for a project
     python -m app.manage revoke <key id>
+    python -m app.manage delete-project <project>   delete a project and all its data (asks you to type its id)
+    python -m app.manage delete-request 3           delete an access request and the email in it
 """
 import argparse
 import secrets
@@ -43,6 +45,8 @@ def main() -> None:
     sub.add_parser("projects")
     sub.add_parser("newkey").add_argument("project")
     sub.add_parser("revoke").add_argument("key_id")
+    sub.add_parser("delete-project").add_argument("project")
+    sub.add_parser("delete-request").add_argument("id", type=int)
     a = p.parse_args()
 
     init_db()
@@ -82,6 +86,17 @@ def main() -> None:
             s.add(k)
             s.commit()
             print(f"Revoked key {k.prefix}...")
+        elif a.cmd == "delete-project":
+            if s.get(Project, a.project) is None:
+                raise SystemExit(f"No project '{a.project}'.")
+            print(f"This permanently deletes project '{a.project}': its suites, runs, results, traces, keys and access request.")
+            if input("Type the project id to confirm: ").strip() != a.project:
+                raise SystemExit("Not deleted.")
+            out = beta.delete_project(s, a.project)
+            print("Deleted: " + ", ".join(f"{n} {k}" for k, n in out["deleted"].items()))
+        elif a.cmd == "delete-request":
+            beta.delete_request(s, a.id)
+            print(f"Deleted access request #{a.id}.")
 
 
 if __name__ == "__main__":
