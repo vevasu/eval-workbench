@@ -3,6 +3,8 @@
 A lightweight evaluation and observability workbench for LLM applications.
 
 It helps teams create structured evaluation cases, run LLM responses against expected behavior, identify failures, and track regressions as prompts or models change.
+# Demo video:
+https://github.com/user-attachments/assets/0b3a8cbb-48a6-4976-a34a-d3ce691daddb
 
 ## Live Demo
 https://eval-workbench-917841678315.us-central1.run.app/#/dashboard 
