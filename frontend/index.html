@@ -951,7 +951,15 @@ async function disconnectApi() {
   Api.saveConfig(null); try { localStorage.setItem(API_OPTOUT_LS, '1'); } catch (e) {} Store.mode = 'demo'; Store.load(); if (!Store.state) { Store.state = await buildSeed(); Store.save(); }
   closeModal(); renderSideFoot(); toast('Using demo data'); go('#/dashboard'); route();
 }
-const API_WRITE_ACTIONS = ['new-suite', 'save-suite', 'import-suite', 'do-import', 'add-case', 'edit-case', 'save-case', 'delete-case', 'delete-suite', 'delete-run', 'start-run', 'reset'];
+// In live data mode, suites and cases are edited through the API (apiWrite). Only these stay demo-only.
+const API_WRITE_ACTIONS = ['start-run', 'reset'];
+// Run an API write from a form: disables the button while it runs, and shows a failure in the form (or as a toast).
+async function apiWrite(fn, errSel, btn) {
+  if (btn) btn.disabled = true;
+  try { await fn(); }
+  catch (e) { if (btn) btn.disabled = false; const el = errSel && $(errSel); if (el) { el.hidden = false; el.textContent = e.message; } else toast(e.message); }
+}
+const enc = encodeURIComponent;
 
 /* ---------------- Seed data ---------------- */
 const STORY_WORD_LIMIT = { type: 'regex', pattern: '^\\s*(\\S+\\s+){0,79}\\S+\\s*$', category: 'Instruction not followed' };
@@ -1859,6 +1867,10 @@ function modalSuite() {
 }
 function saveSuite() {
   const name = $('#f-name').value.trim(); if (!name) { const e = $('#f-err'); e.hidden = false; e.textContent = 'Give the suite a name.'; return; }
+  if (Store.mode === 'api') return apiWrite(async () => {
+    const s = await Api.request('POST', '/suites', { name, description: $('#f-desc').value.trim(), pipeline: $('#f-pipe').value, slaMs: +$('#f-sla').value || 3000, systemPrompt: $('#f-sys').value.trim(), context: $('#f-ctx').value.trim() || null });
+    closeModal(); await Api.refresh(); toast('Suite created'); go('#/suites/' + enc(s.id));
+  }, '#f-err', $('[data-action=save-suite]'));
   const s = createSuite({ name, description: $('#f-desc').value.trim(), pipeline: $('#f-pipe').value, slaMs: +$('#f-sla').value || 3000, systemPrompt: $('#f-sys').value.trim(), context: $('#f-ctx').value.trim(), cases: [] });
   closeModal(); toast('Suite created'); go('#/suites/' + s.id);
 }
@@ -1905,6 +1917,10 @@ function saveCase(suiteId, caseId) {
   const s = getSuite(suiteId); const d = readCaseForm();
   if (!d.input) { const e = $('#c-err'); e.hidden = false; e.textContent = 'Add an input for this test case.'; return; }
   if (d.checks.some(c => c.type === 'regex')) { try { new RegExp(d.checks.find(c => c.type === 'regex').pattern); } catch (e) { const el = $('#c-err'); el.hidden = false; el.textContent = 'The regex pattern is not valid.'; return; } }
+  if (Store.mode === 'api') return apiWrite(async () => {
+    await Api.request(caseId ? 'PATCH' : 'POST', `/suites/${enc(suiteId)}/cases${caseId ? '/' + enc(caseId) : ''}`, d);
+    closeModal(); await Api.refresh(); toast(caseId ? 'Test case saved' : 'Test case added');
+  }, '#c-err', $('[data-action=save-case]'));
   if (caseId) { const tc = s.cases.find(c => c.id === caseId); Object.assign(tc, d); delete tc.sim; }
   else s.cases.push({ id: nextCaseId(s), ...d });
   Store.save(); closeModal(); toast(caseId ? 'Test case saved' : 'Test case added'); route();
@@ -2016,6 +2032,11 @@ function doImport() {
   if (!spec || !Array.isArray(spec.cases) || !spec.cases.length) return err('No test cases found. JSON needs a "cases" array; CSV needs a header row and at least one case.');
   const bad = spec.cases.findIndex(c => !c || !c.input); if (bad >= 0) return err(`Case ${bad + 1} has no input.`);
   for (const c of spec.cases) for (const ch of (c.checks || [])) if (!Evaluators[ch.type]) return err(`Unknown check type "${ch.type}".`);
+  if (Store.mode === 'api') return apiWrite(async () => {
+    const json = txt[0] === '{' || txt[0] === '[';
+    const s = await Api.request('POST', '/suites/import', { format: json ? 'json' : 'csv', content: txt, name: json ? null : spec.name });
+    closeModal(); await Api.refresh(); toast(`Imported ${s.cases.length} test cases`); go('#/suites/' + enc(s.id));
+  }, '#imp-err', $('[data-action=do-import]'));
   const s = createSuite({ name: spec.name || 'Imported suite', description: spec.description, pipeline: spec.pipeline, slaMs: +spec.slaMs || 3000, systemPrompt: spec.systemPrompt, context: spec.context, cases: [] });
   s.cases = spec.cases.map((c, i) => ({ id: c.id || `${s.prefix}-${String(i + 1).padStart(3, '0')}`, input: String(c.input), expected: String(c.expected || ''), tag: c.tag || '', checks: c.checks || [], ...(c.actual != null && c.actual !== '' ? { recorded: String(c.actual), recordedLatencyMs: +c.latencyMs || 0 } : {}) }));
   Store.save(); closeModal(); toast(`Imported ${s.cases.length} test cases`); go('#/suites/' + s.id);
@@ -2069,7 +2090,7 @@ document.addEventListener('click', e => {
     const act = a.dataset.action;
     if (act === 'modal-back') { if (e.target === a) closeModal(); return; }
     e.preventDefault();
-    if (Store.mode === 'api' && API_WRITE_ACTIONS.includes(act)) { closeModal(); toast('Live data is read-only here. Create suites and runs through the API or SDK.'); return; }
+    if (Store.mode === 'api' && API_WRITE_ACTIONS.includes(act)) { closeModal(); toast(act === 'reset' ? 'Sample data can only be restored in demo mode.' : 'In live data mode, runs come from your app through the SDK.'); return; }
     switch (act) {
       case 'api-settings': modalApiSettings(); break;
       case 'request-access': modalRequestAccess(); break;
@@ -2097,9 +2118,9 @@ document.addEventListener('click', e => {
       case 'add-case': modalCase(a.dataset.suite); break;
       case 'edit-case': modalCase(a.dataset.suite, a.dataset.id); break;
       case 'save-case': saveCase(a.dataset.suite, a.dataset.id || null); break;
-      case 'delete-case': if (confirm(`Delete test case ${a.dataset.id}? Past run results keep their copy.`)) { const s = getSuite(a.dataset.suite); s.cases = s.cases.filter(c => c.id !== a.dataset.id); Store.save(); toast('Test case deleted'); go('#/suites/' + s.id); } break;
-      case 'delete-suite': { const s = getSuite(a.dataset.id); if (confirm(`Delete "${s.name}" and all ${runsFor(s.id).length} of its runs?`)) { Store.state.suites = Store.state.suites.filter(x => x.id !== s.id); Store.state.runs = Store.state.runs.filter(r => r.suiteId !== s.id); Store.save(); toast('Suite deleted'); go('#/suites'); } break; }
-      case 'delete-run': { const r = getRun(a.dataset.id); if (confirm(`Delete run ${r.id}?`)) { Store.state.runs = Store.state.runs.filter(x => x.id !== r.id); Store.save(); toast('Run deleted'); go('#/results'); } break; }
+      case 'delete-case': if (confirm(`Delete test case ${a.dataset.id}? Past run results keep their copy.`)) { if (Store.mode === 'api') { apiWrite(async () => { await Api.request('DELETE', `/suites/${enc(a.dataset.suite)}/cases/${enc(a.dataset.id)}`); await Api.refresh(); toast('Test case deleted'); go('#/suites/' + enc(a.dataset.suite)); }); break; } const s = getSuite(a.dataset.suite); s.cases = s.cases.filter(c => c.id !== a.dataset.id); Store.save(); toast('Test case deleted'); go('#/suites/' + s.id); } break;
+      case 'delete-suite': { const s = getSuite(a.dataset.id); if (confirm(`Delete "${s.name}" and all ${runsFor(s.id).length} of its runs${Store.mode === 'api' ? ', and any production traffic recorded for it' : ''}? This cannot be undone.`)) { if (Store.mode === 'api') { apiWrite(async () => { await Api.request('DELETE', `/suites/${enc(s.id)}`); await Api.refresh(); toast('Suite deleted'); go('#/suites'); }); break; } Store.state.suites = Store.state.suites.filter(x => x.id !== s.id); Store.state.runs = Store.state.runs.filter(r => r.suiteId !== s.id); Store.save(); toast('Suite deleted'); go('#/suites'); } break; }
+      case 'delete-run': { const r = getRun(a.dataset.id); if (confirm(`Delete run ${r.id}?`)) { if (Store.mode === 'api') { apiWrite(async () => { await Api.request('DELETE', `/runs/${enc(r.id)}`); await Api.refresh(); toast('Run deleted'); go('#/results'); }); break; } Store.state.runs = Store.state.runs.filter(x => x.id !== r.id); Store.save(); toast('Run deleted'); go('#/results'); } break; }
       case 'start-run': startRun(); break;
       case 'stop-run': if (RunState.controller) RunState.controller.abort(); break;
       case 'compare-selected': { const ids = $$('[data-compare]:checked').map(i => i.dataset.compare); const runs = ids.map(getRun).sort((x, y) => x.startedAt - y.startedAt); go('#/compare' + qs({ suite: runs[0].suiteId, a: runs[0].id, b: runs[1].id })); break; }

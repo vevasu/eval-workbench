@@ -25,7 +25,7 @@ python -m app.seed              # loads data/sample-data.json into a demo projec
 python -m uvicorn app.main:app  # API and web app at http://127.0.0.1:8000
 ```
 
-Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste the key. Every page then reads live data from the API. In this mode the app is read-only; suites and runs come from the API or SDK.
+Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste the key. Every page then reads live data from the API. Suites and test cases can be uploaded (**Import suite**, JSON or CSV), added, edited and deleted in the app; runs come from your code through the SDK.
 
 - Docs for the API: http://127.0.0.1:8000/docs
 - Create more projects and keys with `POST /admin/projects` and `POST /admin/projects/{id}/keys`, using `Authorization: Bearer <admin key>`. Keys are stored as hashes and shown once.

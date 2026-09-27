@@ -49,3 +49,14 @@ def update_case(suite_id: str, case_id: str, body: CasePatch, project: Project =
     session.add(case)
     session.commit()
     return case
+
+
+@router.delete("/{case_id}", status_code=204)
+def delete_case(suite_id: str, case_id: str, project: Project = Depends(current_project),
+                session: Session = Depends(get_session)):
+    """Delete a test case. Past results keep their own copy of its input and expected behaviour."""
+    case = session.get(TestCase, (project.id, suite_id, case_id))
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    session.delete(case)
+    session.commit()

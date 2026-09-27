@@ -5,10 +5,10 @@ import re
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from .limits import check_suite_quota
-from .models import Run, Suite, TestCase, now_ms
+from .models import Result, Run, Span, Suite, TestCase, now_ms
 from .scoring import EVALUATORS
 
 
@@ -24,6 +24,17 @@ def get_run_or_404(session: Session, project_id: str, run_id: str) -> Run:
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+def delete_runs(session: Session, project_id: str, run_ids: list) -> int:
+    """Delete runs with their results and spans. Returns how many results went."""
+    if not run_ids:
+        return 0
+    result_ids = select(Result.id).where(Result.project_id == project_id, Result.run_id.in_(run_ids))
+    session.exec(delete(Span).where(Span.result_id.in_(result_ids)))
+    n = session.exec(delete(Result).where(Result.project_id == project_id, Result.run_id.in_(run_ids))).rowcount
+    session.exec(delete(Run).where(Run.project_id == project_id, Run.id.in_(run_ids)))
+    return n
 
 
 def validate_checks(checks: list) -> None:
