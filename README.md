@@ -53,17 +53,6 @@ print(result.url)
 
 The SDK runs each test case through your function in your own process, times it, records nested spans, uploads the outputs, and the backend scores them. Errors in your function become execution errors. Tests: `cd sdk/python && python -m pytest`.
 
-## Example applications
-
-The repository includes a small OpenAI-backed story generator that demonstrates the end-to-end workflow:
-
-1. Run an LLM application
-2. Trace the execution
-3. Run an evaluation suite
-4. Capture the outputs
-5. Evaluate the results in Eval Workbench
-
-See [`examples/story-generator`](./examples/story-generator) for the implementation and evaluation suite.
 
 ## Repository
 
