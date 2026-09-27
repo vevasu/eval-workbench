@@ -1,41 +1,37 @@
 # Eval Workbench
 
-Evaluate, debug and monitor the quality of AI applications: evaluation suites, execution telemetry, failure analysis and run comparison.
+A lightweight evaluation and observability workbench for LLM applications.
 
-Your application sends data to the Workbench, the way it would to LangSmith or Arize. The Workbench never calls into your application.
+It helps teams create structured evaluation cases, run LLM responses against expected behavior, identify failures, and track regressions as prompts or models change.
 
-## Frontend on its own (demo mode)
+## Live Demo
+https://eval-workbench-917841678315.us-central1.run.app/#/dashboard 
 
-Open `frontend/index.html` in a browser, or serve it:
+## Why EvalWorkbench?
 
-```
-cd frontend
-python -m http.server 8000
-```
+LLM applications can produce convincing responses while still failing on ambiguity, edge cases, structured outputs, or changes to prompts and models.
 
-Sample data loads on first visit and is saved in the browser. This mode does not need the backend.
+EvalWorkbench provides a simple evaluation workflow:
 
-## Backend and web app together
+Define → Run → Evaluate → Analyze → Re-test
 
-```
-cd backend
-pip install -r requirements.txt
-copy .env.example .env          # set EVAL_WORKBENCH_ADMIN_KEY to a long random string
-python -m app.seed              # loads data/sample-data.json into a demo project, prints a demo API key once
-python -m uvicorn app.main:app  # API and web app at http://127.0.0.1:8000
-```
+Instead of evaluating an AI application manually one prompt at a time, test cases can be captured and evaluated systematically.
 
-Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste the key. Every page then reads live data from the API. In this mode the app is read-only; suites and runs come from the API or SDK.
-
-- Docs for the API: http://127.0.0.1:8000/docs
-- Create more projects and keys with `POST /admin/projects` and `POST /admin/projects/{id}/keys`, using `Authorization: Bearer <admin key>`. Keys are stored as hashes and shown once.
-- Tests: `cd backend && pip install pytest && python -m pytest`
-
-## Public demo and private beta
-
-Live at https://eval-workbench-5lofnwh6hq-uc.a.run.app (Google Cloud Run, Neon Postgres). Visitors see the sample data, a **Get started** guide, and can request access. You approve requests at `/admin.html` or with `python -m app.manage approve <id>`, which creates their project and API key. See `docs/BETA.md` for the operator guide, deployment, configuration and limits.
+## What it does
+- Create and manage structured LLM evaluation test cases
+- Define expected behavior for each test case
+- Run test cases against an LLM application
+- Compare actual responses with expected outcomes
+- Classify results as Pass, Fail, or Review
+- Capture evaluation results for individual test cases
+- Identify recurring failure patterns
+- Inspect evaluation runs and response details
+- Track regressions when prompts or application behavior change
+- Provide visibility into response latency and evaluation outcomes
 
 ## Python SDK
+
+Eval Workbench includes a Python SDK for running evaluation suites from your own application and sending execution results, traces, and spans back to the workbench.
 
 ```
 pip install -e sdk/python     # from this repository
@@ -59,8 +55,15 @@ The SDK runs each test case through your function in your own process, times it,
 
 ## Example applications
 
-- `examples/story-generator`: a small OpenAI-backed story writer (80 words or fewer) with an eval suite and live tracing. See its README.
-- `examples/writer-critic`: a multi-agent app (Planner, Writer, Critic, Editor) with a critique-and-revise loop, a live web UI, and optional tracing with one span per agent. See its README.
+The repository includes a small OpenAI-backed story generator that demonstrates the end-to-end workflow:
+
+1. Run an LLM application
+2. Trace the execution
+3. Run an evaluation suite
+4. Capture the outputs
+5. Evaluate the results in Eval Workbench
+
+See [`examples/story-generator`](./examples/story-generator) for the implementation and evaluation suite.
 
 ## Repository
 
@@ -70,5 +73,4 @@ The SDK runs each test case through your function in your own process, times it,
 - `examples/` example applications that use the SDK
 - `data/sample-data.json` sample suites and run history, used to seed the backend
 - `templates/` CSV and JSON templates for importing a suite
-- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 6 are built; CI integration is next)
 - `CLAUDE.md` project context for Claude Code
