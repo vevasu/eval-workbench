@@ -14,7 +14,7 @@ from ..schemas import CamelModel, ResultOut, SpanIn
 from ..judge import judge_later, needs_judge
 from ..scoring import evaluate, span_totals
 from ..serialize import results_for
-from ..services import create_suite, next_run_id, validate_checks
+from ..services import create_suite, matching_cases, next_run_id, validate_checks
 
 router = APIRouter(tags=["ingest"])
 
@@ -63,11 +63,16 @@ def ingest_trace(body: TraceIn, project: Project = Depends(current_project), ses
         session.flush()
 
     # The app's own checks, then the suite's live checks set in the web app. An AI judge runs on its sample of requests.
-    checks = [c for c in body.checks + (suite.live_checks or [])
+    # A prompt that is the same as a test case's input is also checked by that test case, so a suite you import applies
+    # to the next live request straight away.
+    matched = matching_cases(session, project.id, body.input)
+    case_checks = [{**c, "fromCase": f"{m.suite_id}/{m.id}"} for m in matched for c in (m.checks or [])]
+    checks = [c for c in body.checks + case_checks + (suite.live_checks or [])
               if c.get("type") != "llm_judge" or random.random() * 100 < c.get("sample", 100)]
     ev = evaluate(checks, body.actual, body.latency_ms, run.sla_ms, body.error, live=True)
     totals = span_totals([s.model_dump() for s in body.spans])
-    row = Result(project_id=project.id, run_id=run.id, case_id="pending", input=body.input, expected="", actual=body.actual,
+    expected = next((m.expected for m in matched if m.expected), "")
+    row = Result(project_id=project.id, run_id=run.id, case_id="pending", input=body.input, expected=expected, actual=body.actual,
                  verdict=ev["verdict"], category=ev["category"], reason=ev["reason"], checks=ev["checks"],
                  latency_ms=body.latency_ms, timestamp=body.timestamp or now_ms(), model=body.model, version=body.version,
                  user_id=body.user_id or None, session_id=body.session_id or None, tags=body.tags or None,

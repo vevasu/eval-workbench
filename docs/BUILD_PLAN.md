@@ -100,6 +100,7 @@ Done when: a reviewer can work through the queue in demo and API mode, the run's
 Built, following what LangSmith (online evaluators) and Arize (online evals) do.
 
 - Suites and test cases can be uploaded (JSON or CSV), added, edited and deleted in the web app with a key, not only through the API.
+- **Your suite applies to live prompts**: a production request with the same input as a test case (capitals and spaces don't matter) is checked by that test case too, and its page links to it. Change a test case or import a new suite, and the next identical prompt uses it.
 - **Checks on live traffic**: per application, set on the Production page, run on every new production request after the checks the app sends.
 - **AI judge** (`llm_judge` check, with `criteria` and an optional `sample` percentage): a model decides pass or fail with a reason, using the project's own OpenAI key, saved encrypted (`PUT /settings/judge`, **Save and test** in the web app). Production requests are stored at once as Review ("Awaiting AI judge") and judged in the background; test runs are judged while their results upload. A judge is skipped when a rule already failed the answer, and if it can't run (no key, provider error) the result goes to a person in the review queue.
 

@@ -37,6 +37,18 @@ def delete_runs(session: Session, project_id: str, run_ids: list) -> int:
     return n
 
 
+def same_input(text: str) -> str:
+    """How live prompts are matched to test cases: capitals and extra spaces don't matter."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def matching_cases(session: Session, project_id: str, input_text: str) -> list:
+    """Test cases in any of the project's suites whose input is the same as this production request's."""
+    key = same_input(input_text)
+    rows = session.exec(select(TestCase).where(TestCase.project_id == project_id)).all()
+    return [c for c in rows if same_input(c.input) == key]
+
+
 def validate_checks(checks: list) -> None:
     from .settings import limits
     if len(checks) > limits()["max_checks"]:

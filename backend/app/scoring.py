@@ -126,6 +126,8 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
             continue
         checks.append({"type": c["type"], "label": ev["label"], "spec": ev["describe"](c),
                        "category": c.get("category") or ev["category"], **ev["run"](output, c)})
+        if c.get("fromCase"):  # a production request checked by the test case whose input it matches
+            checks[-1]["fromCase"] = c["fromCase"]
         if checks[-1].get("pending"):
             checks[-1]["refusalExpected"] = refusal_expected  # kept for deciding again once the judge has answered
     return decide(checks, output, latency_ms, sla_ms, live, refusal_expected)

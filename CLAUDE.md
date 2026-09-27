@@ -93,6 +93,8 @@ These must behave identically wherever scoring happens (frontend today, backend 
 6. Otherwise, latency over the suite SLA: Fail, category `Latency SLA breach`.
 7. Otherwise: Pass.
 
+A production request whose input is the same as a test case's (any suite in the project; capitals and extra spaces don't matter, `same_input()`) is also checked by that test case's checks, after the app's own and before the suite's live checks. Those check results carry `fromCase` (`<suiteId>/<caseId>`) and the result takes the case's `expected`, so a suite that is changed and imported applies to the next live request.
+
 Production traffic follows the same rules, except that a request sent without any checks skips the "no checks: Review" rule: it is judged on errors and latency only (steps 1, 6 and 7), so live traffic doesn't flood review.
 
 A person's review overrides all of the above: `verdict` and `category` become the reviewer's (Pass, or Fail with a category), and the automatic ones are kept in `review.autoVerdict` and `review.autoCategory`. Undo puts them back. Spot checks are production requests with verdict Pass whose id number is a multiple of 20 (`isSpotCheck()` / `is_spot_check()`).
