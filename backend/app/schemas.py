@@ -33,6 +33,7 @@ class ResultOut(CamelModel):
     model: str = ""
     version: str = ""
     spans: list[SpanOut] = []
+    review: Optional[dict] = None  # a person's decision; verdict and category then hold it
     # Production traces only (None for test runs).
     user_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -158,6 +159,13 @@ class ResultIn(CamelModel):
 
 class ResultsIn(CamelModel):
     results: list[ResultIn]
+
+
+class ReviewIn(CamelModel):
+    verdict: Literal["Pass", "Fail"]
+    category: Optional[str] = None  # required for Fail: why it failed
+    note: str = Field(default="", max_length=1000)
+    reviewer: str = Field(default="", max_length=80)
 
 
 class ProjectIn(CamelModel):

@@ -22,8 +22,8 @@ def test_scorer_matches_every_stored_result(run):
     for r in run["results"]:
         case = CASES[(run["suiteId"], r["caseId"])]
         ev = evaluate(case["checks"], r["actual"], r["latencyMs"], run["slaMs"])
-        assert ev["verdict"] == r["verdict"], r["caseId"]
-        assert ev["category"] == r["category"], r["caseId"]
+        auto = (r["review"]["autoVerdict"], r["review"]["autoCategory"]) if r.get("review") else (r["verdict"], r["category"])
+        assert (ev["verdict"], ev["category"]) == auto, r["caseId"]  # a person's decision replaces the verdict; the automatic one is kept
         assert ev["reason"] == r["reason"], r["caseId"]
         assert ev["checks"] == r["checks"], r["caseId"]
 

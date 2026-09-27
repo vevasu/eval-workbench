@@ -40,6 +40,7 @@
   --s1:#86A2F2; --s2:#3FC3C5; --s3:#C08FEA; --s4:#EE9466; --s5:#A6C76F; --focus:#86A2F2;
 }
 *,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}
 html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}
@@ -236,6 +237,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .delta-card .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .delta-card .d{font-size:12.5px}
 a.delta-card{display:block;color:inherit}
+.rv{font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.rv::before{content:"✓ "}
 a.delta-card:hover{text-decoration:none;border-color:var(--ink-3)}
 .kpi .v a{color:inherit}
 .side-by-side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:8px}
@@ -769,6 +772,60 @@ const Prod = {
     return this.load(`trace/${runId}/${caseId}`, () => Api.get(`/production/traces/${encodeURIComponent(runId)}/${encodeURIComponent(caseId)}`));
   }
 };
+
+/* ---------------- Human review ----------------
+   A person's decision on a result replaces verdict and category, so every pass rate, comparison and production number
+   uses it. review keeps the automatic ones: { verdict, category, note, reviewer, reviewedAt, autoVerdict, autoCategory }.
+   Same rules as app/routers/reviews.py. */
+const SPOT_EVERY = 20; // spot checks: 1 in 20 production requests that passed their checks
+const REVIEWER_LS = 'eval-workbench.reviewer';
+function isSpotCheck(caseId) { const m = /^LIVE-(\d+)$/.exec(caseId || ''); return !!m && +m[1] % SPOT_EVERY === 0; }
+function applyReview(x, d, at) {
+  const auto = x.review ? { autoVerdict: x.review.autoVerdict, autoCategory: x.review.autoCategory } : { autoVerdict: x.verdict, autoCategory: x.category };
+  x.review = { verdict: d.verdict, category: d.verdict === 'Fail' ? d.category : null, note: (d.note || '').trim(), reviewer: (d.reviewer || '').trim(), reviewedAt: at, ...auto };
+  x.verdict = x.review.verdict; x.category = x.review.category;
+}
+function undoReview(x) { if (x.review) { x.verdict = x.review.autoVerdict; x.category = x.review.autoCategory; x.review = null; } }
+const Reviews = {
+  queue(p) {
+    const limit = p.limit || 50, offset = p.offset || 0;
+    if (Store.mode === 'api') return Prod.load('reviews' + qs(p), () => Api.get('/reviews' + qs(p)));
+    const clip = t => (t || '').length <= PREVIEW ? t || '' : t.slice(0, PREVIEW) + '…';
+    const b = { pending: [], spot: [], done: [] };
+    Store.state.runs.forEach(r => {
+      if (p.suite && r.suiteId !== p.suite) return;
+      if (p.source && (p.source === 'live') !== isLive(r)) return;
+      r.results.forEach(x => {
+        const it = { runId: r.id, suiteId: r.suiteId, caseId: x.caseId, source: isLive(r) ? 'live' : 'runs', timestamp: x.timestamp, verdict: x.verdict, category: x.category,
+          reason: x.reason, input: clip(x.input), actual: clip(x.actual), version: x.version || r.version, model: x.model || r.model, review: x.review || null };
+        if (x.review) b.done.push(it);
+        else if (x.verdict === 'Review') { if (!p.reason || x.category === p.reason) b.pending.push(it); }
+        else if (isLive(r) && x.verdict === 'Pass' && isSpotCheck(x.caseId)) b.spot.push(it);
+      });
+    });
+    b.pending.sort((a, c) => c.timestamp - a.timestamp); b.spot.sort((a, c) => c.timestamp - a.timestamp); b.done.sort((a, c) => c.review.reviewedAt - a.review.reviewedAt);
+    const kind = b[p.kind] ? p.kind : 'pending';
+    return { data: { items: b[kind].slice(offset, offset + limit), total: b[kind].length, counts: { pending: b.pending.length, spot: b.spot.length, done: b.done.length } } };
+  },
+  // The result being reviewed: from the loaded runs, or for production requests in API mode, from /production.
+  target(runId, caseId) {
+    const r = getRun(runId);
+    if (r && !(isLive(r) && Store.mode === 'api')) { const x = r.results.find(y => y.caseId === caseId); const s = getSuite(r.suiteId); return x ? { data: { run: r, suite: { id: r.suiteId, name: s ? s.name : r.suiteId, slaMs: s ? s.slaMs : r.slaMs }, result: x } } : { error: 'That result no longer exists.' }; }
+    return Prod.trace(runId, caseId);
+  },
+  async save(runId, caseId, d) {
+    if (Store.mode === 'api') {
+      const path = `/runs/${encodeURIComponent(runId)}/results/${encodeURIComponent(caseId)}/review`;
+      const out = d ? await Api.request('POST', path, d) : await Api.request('DELETE', path);
+      const r = getRun(runId); const x = r && r.results.find(y => y.caseId === caseId);
+      if (x) { x.verdict = out.verdict; x.category = out.category; x.review = out.review || null; delete r._sum; }
+      Prod.clear(); return;
+    }
+    const r = getRun(runId); const x = r && r.results.find(y => y.caseId === caseId); if (!x) throw new Error('That result no longer exists.');
+    if (d) applyReview(x, d, Date.now()); else undoReview(x);
+    delete r._sum; Store.save();
+  }
+};
 const SDK_VERSION = '0.2.0';
 function codeBlock(id, text) { return `<div class="codeblock"><pre class="pre" id="${id}">${esc(text)}</pre><button class="btn sm" data-action="copy" data-target="${id}">Copy</button></div>`; }
 function pageStart() {
@@ -819,7 +876,7 @@ print(result.summary["passRate"], result.url)    # open the link to see the resu
     <section class="panel"><h2><span class="num">4</span>Send data</h2><p class="hint">Choose the style that fits. You can use both.</p>
       <h3 style="margin:14px 0 4px;font-size:15px">A. Watch live traffic</h3><p class="hint">Wrap the function that handles a real request. Each request appears on the Production page with its steps, and is scored by the checks you send (without checks, by errors and latency). Set <span class="mono">prompt_tokens</span>, <span class="mono">completion_tokens</span> and <span class="mono">cost_usd</span> on a model span to track usage. It never slows or breaks your app: if the Workbench is unreachable, the trace is dropped and your app carries on.</p>${codeBlock('c-live', live)}
       <h3 style="margin:18px 0 4px;font-size:15px">B. Run a test suite</h3><p class="hint">Define test cases with checks, then run your app over all of them for each new version. Compare versions on the Compare runs page to catch regressions.</p>${codeBlock('c-suite', suite)}</section>
-    <section class="panel"><h2><span class="num">5</span>Read the results here</h2><p class="hint" style="margin:0">Open <b>Production</b> to see whether live traffic is getting worse and why, <b>Traces</b> for individual requests, <b>Results</b> for each run, and <b>Compare runs</b> to see what got better or worse between versions. Every number links down to the request behind it. Turn a failing production request into a test case with <b>Add to test suite</b>, so the next run checks it.</p></section>
+    <section class="panel"><h2><span class="num">5</span>Read the results here</h2><p class="hint" style="margin:0">Open <b>Production</b> to see whether live traffic is getting worse and why, <b>Traces</b> for individual requests, <b>Results</b> for each run, and <b>Compare runs</b> to see what got better or worse between versions. Every number links down to the request behind it. Turn a failing production request into a test case with <b>Add to test suite</b>, so the next run checks it. Use the <b>Review queue</b> to decide results the checks can't, such as a <span class="mono">human</span> rubric.</p></section>
     <section class="panel"><h2>Checks you can use</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Check</th><th>Passes when</th></tr></thead><tbody>
       <tr><td class="mono">contains_all</td><td>the answer includes every listed value</td></tr><tr><td class="mono">contains_any</td><td>it includes at least one</td></tr><tr><td class="mono">not_contains</td><td>it includes none of the listed values</td></tr>
       <tr><td class="mono">regex</td><td>it matches a pattern</td></tr><tr><td class="mono">json_keys</td><td>it contains valid JSON with the listed keys</td></tr><tr><td class="mono">max_length</td><td>it is no longer than a limit</td></tr><tr><td class="mono">human</td><td>always goes to a person for review</td></tr></tbody></table></div></section>
@@ -1053,6 +1110,25 @@ function buildLiveRuns(suite) {
   });
 }
 
+/* Demo reviews: Priya reviewed the cases that need a person in the first three runs, and Sam spot-checked about half
+   of the production requests picked for it. Later runs are still waiting in the review queue. */
+const SEED_REVIEW_NOTES = {
+  'DS-009': { pass: 'Clear beginning, turn and ending. Reads naturally.', fail: ['Incomplete answer', 'Three flat sentences: no turn and no ending.'] },
+  'DS-010': { pass: 'Both friends are named and the story is complete.', fail: ['Incomplete answer', 'Dev is only "her friend"; he is never named.'] }
+};
+const SEED_SPOT_NOTES = ['Reads well and fits the prompt.', 'Good story, right length.', 'Fine. Keeps to the genre.', 'On topic and complete.'];
+function applySeedReviews(runs) {
+  const at = (ts, hours) => ts + hours * HOUR_MS;
+  runs.filter(r => ['DS-R1', 'DS-R2', 'DS-R3'].includes(r.id)).forEach(r => r.results.filter(x => x.verdict === 'Review').forEach(x => {
+    const n = SEED_REVIEW_NOTES[x.caseId]; if (!n) return;
+    const good = x.actual === storySim(x.caseId).good;
+    applyReview(x, good ? { verdict: 'Pass', note: n.pass, reviewer: 'Priya' } : { verdict: 'Fail', category: n.fail[0], note: n.fail[1], reviewer: 'Priya' }, at(r.startedAt, 20));
+  }));
+  const spots = runs.filter(isLive).flatMap(r => r.results).filter(x => x.verdict === 'Pass' && isSpotCheck(x.caseId));
+  const end = new Date(LIVE_SEED.to).getTime(); // never after the demo's last request
+  spots.filter((x, i) => i % 2 === 0).forEach((x, i) => applyReview(x, { verdict: 'Pass', note: SEED_SPOT_NOTES[i % SEED_SPOT_NOTES.length], reviewer: 'Sam' }, Math.min(at(x.timestamp, 18), end)));
+}
+
 async function buildSeed() {
   const suites = SEED_SUITES.map(s => ({
     id: s.id, prefix: s.prefix, name: s.name, description: s.description, pipeline: s.pipeline, slaMs: s.slaMs, baseMs: s.baseMs,
@@ -1067,6 +1143,7 @@ async function buildSeed() {
     }
     if (s.id === LIVE_SEED.suiteId) runs.push(...buildLiveRuns(suite));
   }
+  applySeedReviews(runs);
   return { schema: 1, suites, runs };
 }
 
@@ -1129,7 +1206,8 @@ const NAV = [
   ['cases', 'Test cases', '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>'],
   ['results', 'Results', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'],
   ['compare', 'Compare runs', '<path d="M8 3v18M16 3v18M3 8h5M16 16h5"/>'],
-  ['traces', 'Traces', '<path d="M3 6h8M7 12h10M11 18h10"/>']
+  ['traces', 'Traces', '<path d="M3 6h8M7 12h10M11 18h10"/>'],
+  ['review', 'Review queue', '<path d="M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>']
 ];
 function renderNav(active) {
   $('#nav').innerHTML = NAV.map(([k, label, icon]) => `<a href="#/${k}" class="${k === active ? 'active' : ''}" ${k === active ? 'aria-current="page"' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>${label}</a>`).join('');
@@ -1137,6 +1215,10 @@ function renderNav(active) {
 function crumbs(items) { return `<nav class="crumbs" aria-label="Breadcrumb">${items.map((it, i) => (i ? '<span class="sep">/</span>' : '') + (it[1] ? `<a href="${esc(it[1])}">${esc(it[0])}</a>` : `<span>${esc(it[0])}</span>`)).join('')}</nav>`; }
 function head(title, sub, actions = '', crumbHtml = '') { return `${crumbHtml}<div class="page-head"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div><div class="actions">${actions}</div></div>`; }
 const traceHref = (runId, caseId) => `#/trace/${encodeURIComponent(runId)}/${encodeURIComponent(caseId)}`;
+const reviewHref = (runId, caseId, ctx = {}) => `#/review/${encodeURIComponent(runId)}/${encodeURIComponent(caseId)}${qs(ctx)}`;
+// A verdict chip, marked when a person decided it.
+const vchip = x => chip(x.verdict) + (x.review ? ` <span class="rv" title="${esc(`Reviewed by ${x.review.reviewer || 'someone'}${x.review.note ? ': ' + x.review.note : ''}. Automatic: ${x.review.autoVerdict}`)}">reviewed</span>` : '');
+const waitingNote = (reviews, word, ctx = {}) => Object.keys(reviews).length ? `<p class="note">${sortedCats(reviews).map(([k, v]) => `${v} ${esc(k.toLowerCase())}`).join(', ')} ${word}. <a href="#/review${qs(ctx)}">Open the review queue</a></p>` : '';
 const caseHref = (suiteId, caseId) => `#/cases/${encodeURIComponent(suiteId)}/${encodeURIComponent(caseId)}`;
 function qs(obj) { const p = new URLSearchParams(); Object.entries(obj).forEach(([k, v]) => { if (v != null && v !== '') p.set(k, v); }); const s = p.toString(); return s ? '?' + s : ''; }
 
@@ -1185,7 +1267,7 @@ function pageDashboard(q) {
   const trendPanel = `<div class="panel"><div class="panel-head"><div><h2>Trend across runs</h2><p class="hint">Each point is one run. Select a point to open it.</p></div>
     <div class="tabs" role="tablist"><a role="tab" class="${metric === 'pass' ? 'on' : ''}" href="#/dashboard${qs({ suite: q.suite })}">Pass rate</a><a role="tab" class="${metric === 'latency' ? 'on' : ''}" href="#/dashboard${qs({ metric: 'latency', suite: q.suite })}">p95 latency</a></div></div>${chart}</div>`;
   const catPanel = `<div class="panel"><h2>Failure categories</h2><p class="hint">Failed cases in the latest run of each suite, by root cause.</p>${catBars(cur.cats, k => '#/cases' + qs({ cat: k, v: 'Fail' }))}
-    ${Object.keys(cur.reviews).length ? `<p class="note">${sortedCats(cur.reviews).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ')} waiting in review.</p>` : ''}</div>`;
+    ${waitingNote(cur.reviews, 'waiting in review', { source: 'runs' })}</div>`;
 
   const table = `<div class="panel"><h2>Suite health</h2><p class="hint">Latest run of each suite compared with the run before it.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Suite</th><th>Latest</th><th class="num">Pass rate</th><th class="num">Change</th><th>Pass / fail / review</th><th class="num">p95</th><th class="num">Regressions</th><th class="num">Fixed</th></tr></thead><tbody>
     ${per.map(x => `<tr data-href="#/suites/${esc(x.suite.id)}"><td><a href="#/suites/${esc(x.suite.id)}"><b>${esc(x.suite.name)}</b></a><div class="muted" style="font-size:12.5px">${pipelineLabel(x.suite.pipeline)}</div></td>
@@ -1247,7 +1329,7 @@ function pageSuite(id) {
     { name: 'p95', color: 'var(--s3)', points: rs.map(r => ({ x: r.startedAt, y: runSummary(r).p95, href: `#/results/${r.id}`, title: `${r.version} p95 ${fmtMs(runSummary(r).p95)}` })) }
   ], { h: 180, yMin: 0, yMax: Math.max(s.slaMs * 1.1, ...rs.map(r => runSummary(r).p95 * 1.15)), yFmt: v => fmtMs(v), threshold: s.slaMs, thresholdLabel: 'SLA', label: 'Latency by run' }) : '';
   const runsTbl = rs.slice().reverse().map(r => { const su = runSummary(r); const pr = prevRun(r); return `<tr data-href="#/results/${esc(r.id)}"><td class="mono"><a href="#/results/${esc(r.id)}">${esc(r.id)}</a></td><td>${esc(r.version)}</td><td class="nowrap">${esc(r.model)}</td><td class="nowrap">${fmtDate(r.startedAt)}</td><td class="num"><b>${fmtPct(su.passRate)}</b></td><td class="num">${pr ? deltaPts(su.passRate - runSummary(pr).passRate) : '–'}</td><td style="min-width:140px">${pfrBar(su)}</td><td class="num">${fmtMs(su.p95)}</td><td class="muted clip">${esc(r.note || '')}</td></tr>`; }).join('');
-  const casesTbl = s.cases.map(tc => { const x = l && l.results.find(y => y.caseId === tc.id); return `<tr data-href="${caseHref(s.id, tc.id)}"><td class="mono nowrap"><a href="${caseHref(s.id, tc.id)}">${esc(tc.id)}</a></td><td><div class="clip">${esc(tc.input)}</div></td><td><div class="clip ink2">${esc(tc.expected)}</div></td><td>${tc.tag ? `<span class="tag">${esc(tc.tag)}</span>` : ''}</td><td>${x ? chip(x.verdict) : '<span class="muted">Not run</span>'}</td><td class="nowrap">${x && x.category ? esc(x.category) : ''}</td><td>${historyStrip(s.id, tc.id)}</td></tr>`; }).join('');
+  const casesTbl = s.cases.map(tc => { const x = l && l.results.find(y => y.caseId === tc.id); return `<tr data-href="${caseHref(s.id, tc.id)}"><td class="mono nowrap"><a href="${caseHref(s.id, tc.id)}">${esc(tc.id)}</a></td><td><div class="clip">${esc(tc.input)}</div></td><td><div class="clip ink2">${esc(tc.expected)}</div></td><td>${tc.tag ? `<span class="tag">${esc(tc.tag)}</span>` : ''}</td><td class="nowrap">${x ? vchip(x) : '<span class="muted">Not run</span>'}</td><td class="nowrap">${x && x.category ? esc(x.category) : ''}</td><td>${historyStrip(s.id, tc.id)}</td></tr>`; }).join('');
   return head(esc(s.name), esc(s.description || ''), `<button class="btn danger" data-action="delete-suite" data-id="${esc(s.id)}">Delete</button><button class="btn" data-action="add-case" data-suite="${esc(s.id)}">Add test case</button><a class="btn primary" href="#/run${qs({ suite: s.id })}">Run this suite</a>`, crumbs([['Suites', '#/suites'], [s.name]])) +
     `<section class="kpis"><div class="kpi"><div class="l">Test cases</div><div class="v">${s.cases.length}</div><div class="d muted">${pipelineLabel(s.pipeline)}</div></div>
       <div class="kpi"><div class="l">Latest pass rate</div><div class="v">${sum ? fmtPct(sum.passRate) : '–'}</div><div class="d">${sum && p ? deltaPts(sum.passRate - runSummary(p).passRate) : '<span class="flat">no earlier run</span>'}</div></div>
@@ -1383,7 +1465,7 @@ function pageCase(suiteId, caseId) {
       <h3 style="font-size:13px;margin:16px 0 8px">Checks</h3><ul class="checks">${checks || '<li class="muted">No automated checks. Results go to review.</li>'}</ul></div>
       <div class="panel"><h2>Across runs</h2><p class="hint">Passed ${passN} of ${execs.length} runs.</p><div style="margin-bottom:12px">${historyStrip(s.id, tc.id, 20)}</div>${lat}</div></div>
     <div class="panel" style="margin-top:18px"><h2>Executions</h2><p class="hint">Newest first. Open one to see its full trace.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Run</th><th>Version</th><th>Model</th><th>Timestamp</th><th>Result</th><th>Failure reason</th><th class="num">Latency</th><th>Actual output</th></tr></thead><tbody>
-    ${execs.map(e => `<tr data-href="${traceHref(e.r.id, tc.id)}"><td class="mono nowrap"><a href="${traceHref(e.r.id, tc.id)}">${esc(e.r.id)}</a></td><td>${esc(e.r.version)}</td><td class="nowrap">${esc(e.r.model)}</td><td class="nowrap">${fmtDateTime(e.x.timestamp)}</td><td>${chip(e.x.verdict)}</td><td class="nowrap">${esc(e.x.category || '')}</td><td class="num">${fmtMs(e.x.latencyMs)}</td><td><div class="clip mono ink2">${esc(e.x.actual)}</div></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Not run yet.</td></tr>'}
+    ${execs.map(e => `<tr data-href="${traceHref(e.r.id, tc.id)}"><td class="mono nowrap"><a href="${traceHref(e.r.id, tc.id)}">${esc(e.r.id)}</a></td><td>${esc(e.r.version)}</td><td class="nowrap">${esc(e.r.model)}</td><td class="nowrap">${fmtDateTime(e.x.timestamp)}</td><td class="nowrap">${vchip(e.x)}</td><td class="nowrap">${esc(e.x.category || '')}</td><td class="num">${fmtMs(e.x.latencyMs)}</td><td><div class="clip mono ink2">${esc(e.x.actual)}</div></td></tr>`).join('') || '<tr><td colspan="8" class="muted">Not run yet.</td></tr>'}
     </tbody></table></div></div>`;
 }
 
@@ -1413,11 +1495,11 @@ function pageRunDetail(id, q) {
       <div class="kpi"><div class="l">Regressions</div><div class="v ${cmp && cmp.regressions.length ? 'down' : ''}">${cmp ? cmp.regressions.length : '–'}</div><div class="d muted">${cmp ? `${cmp.fixes.length} fixed since ${esc(pr.version)}` : 'no earlier run'}</div></div>
       <div class="kpi"><div class="l">p50 / p95 latency</div><div class="v">${fmtMs(su.p50)} <span class="muted" style="font-weight:500">/ ${fmtMs(su.p95)}</span></div><div class="d">p95 ${ps ? deltaMs(su.p95 - ps.p95) : '<span class="flat">first run</span>'}</div></div>
       <div class="kpi"><div class="l">SLA breaches</div><div class="v">${su.sla}</div><div class="d muted">SLA ${fmtMs(r.slaMs || (s && s.slaMs))}</div></div></section>
-    <div class="grid2"><div class="panel"><h2>Why cases failed</h2><p class="hint">Select a reason to filter the results below.</p>${catBars(su.cats, k => `#/results/${r.id}${qs({ v: 'Fail', cat: k })}`)}${Object.keys(su.reviews).length ? `<p class="note">${sortedCats(su.reviews).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', ')} in review.</p>` : ''}</div>
+    <div class="grid2"><div class="panel"><h2>Why cases failed</h2><p class="hint">Select a reason to filter the results below.</p>${catBars(su.cats, k => `#/results/${r.id}${qs({ v: 'Fail', cat: k })}`)}${waitingNote(su.reviews, 'in review', { suite: r.suiteId, source: 'runs' })}</div>
       <div class="panel"><h2>Latency distribution</h2><p class="hint">Test cases by response time.</p>${histHtml}</div></div>
     <div class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>Test case results</h2>${q.cat ? `<p class="hint">Showing ${esc(q.cat)} · <a href="#/results/${esc(r.id)}${qs({ v: q.v })}">clear</a></p>` : ''}</div>${vf}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Case</th><th>Input</th><th>Actual output</th><th>Result</th><th>Failure reason</th><th>Evaluator note</th><th class="num">Latency</th><th>vs ${pr ? esc(pr.version) : 'previous'}</th></tr></thead><tbody>
-    ${list.map(x => { const p = pr && pr.results.find(y => y.caseId === x.caseId); const ch = !p ? '<span class="muted">new</span>' : p.verdict === x.verdict ? '<span class="muted">same</span>' : (x.verdict === 'Pass' ? '<span class="up">fixed</span>' : p.verdict === 'Pass' ? '<span class="down"><b>regressed</b></span>' : `<span class="muted">${esc(p.verdict)} → ${esc(x.verdict)}</span>`); return `<tr data-href="${traceHref(r.id, x.caseId)}"><td class="mono nowrap"><a href="${traceHref(r.id, x.caseId)}">${esc(x.caseId)}</a></td><td><div class="clip">${esc(x.input)}</div></td><td><div class="clip mono ink2">${esc(x.actual)}</div></td><td>${chip(x.verdict)}</td><td class="nowrap">${esc(x.category || '')}</td><td><div class="clip ink2">${esc(x.reason)}</div></td><td class="num">${fmtMs(x.latencyMs)}</td><td class="nowrap">${ch}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No results match this filter.</td></tr>'}
+    ${list.map(x => { const p = pr && pr.results.find(y => y.caseId === x.caseId); const ch = !p ? '<span class="muted">new</span>' : p.verdict === x.verdict ? '<span class="muted">same</span>' : (x.verdict === 'Pass' ? '<span class="up">fixed</span>' : p.verdict === 'Pass' ? '<span class="down"><b>regressed</b></span>' : `<span class="muted">${esc(p.verdict)} → ${esc(x.verdict)}</span>`); return `<tr data-href="${traceHref(r.id, x.caseId)}"><td class="mono nowrap"><a href="${traceHref(r.id, x.caseId)}">${esc(x.caseId)}</a></td><td><div class="clip">${esc(x.input)}</div></td><td><div class="clip mono ink2">${esc(x.actual)}</div></td><td class="nowrap">${vchip(x)}</td><td class="nowrap">${esc(x.category || '')}</td><td><div class="clip ink2">${esc(x.review && x.review.note ? 'Reviewer: ' + x.review.note : x.reason)}</div></td><td class="num">${fmtMs(x.latencyMs)}</td><td class="nowrap">${ch}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No results match this filter.</td></tr>'}
     </tbody></table></div></div>`;
 }
 
@@ -1536,7 +1618,7 @@ function pageProduction(q) {
     : lineChart([{ name: 'p95 latency', color: 'var(--s3)', points: pts }], { ...chartOpts, yMin: 0, yMax: Math.max(...pts.map(p => p.y || 0)) * 1.15 || 1, yFmt: v => fmtMs(v), label: 'p95 latency over time' });
   const mtab = (k, label) => `<a role="tab" class="${metric === k ? 'on' : ''}" href="#/production${qs({ ...base, metric: k === 'fail' ? '' : k })}">${label}</a>`;
   const trendPanel = `<div class="panel"><div class="panel-head"><div><h2>Over time</h2><p class="hint">Each point is one ${hourly ? 'hour' : 'day'}. Select a point to see its requests.</p></div><div class="tabs" role="tablist">${mtab('fail', 'Failure rate')}${mtab('volume', 'Requests')}${mtab('latency', 'p95 latency')}</div></div>${chart}</div>`;
-  const catPanel = `<div class="panel"><h2>Why requests failed</h2><p class="hint">Failed requests in this window, by root cause.</p>${catBars(sm.cats, k => liveTracesHref({ ...inWin, v: 'Fail', cat: k }))}${Object.keys(sm.reviews).length ? `<p class="note">${sortedCats(sm.reviews).map(([k, v]) => `${v} ${esc(k.toLowerCase())}`).join(', ')} waiting in review.</p>` : ''}</div>`;
+  const catPanel = `<div class="panel"><h2>Why requests failed</h2><p class="hint">Failed requests in this window, by root cause.</p>${catBars(sm.cats, k => liveTracesHref({ ...inWin, v: 'Fail', cat: k }))}${waitingNote(sm.reviews, 'waiting in review', { suite: q.suite, source: 'live' })}</div>`;
 
   const vrows = vs.slice().reverse().map(v => { const prev = before(v);
     return `<tr data-href="${liveTracesHref({ suite: v.suiteId, version: v.version, from: win.from, to: win.to })}"><td class="nowrap"><a href="${liveTracesHref({ suite: v.suiteId, version: v.version, from: win.from, to: win.to })}"><b>${esc(v.version)}</b></a> <span class="muted">${esc(v.model)}</span>${!q.suite && d.suites.length > 1 ? `<div class="muted" style="font-size:12.5px">${esc((getSuite(v.suiteId) || {}).name || v.suiteId)}</div>` : ''}</td>
@@ -1579,7 +1661,7 @@ function pageTraces(q) {
   return head('Traces', 'Individual executions with timing, inputs, outputs and evaluator results. Newest first.') + sourceTabs('runs') +
     `<div class="panel"><div class="panel-head"><div class="tabs">${['Fail', 'Review', 'Pass', ''].map(k => `<a class="${v === k ? 'on' : ''}" href="#/traces${qs({ src: 'runs', v: k || 'all' }).replace('v=all', 'v=')}">${k || 'All'}</a>`).join('')}</div><span class="note" style="margin:0">Showing ${rows.length}${rows.length === 150 ? ' most recent' : ''}</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Timestamp</th><th>Case</th><th>Suite</th><th>Version</th><th>Model</th><th>Result</th><th>Failure reason</th><th class="num">Latency</th></tr></thead><tbody>
-    ${rows.map(o => { const s = getSuite(o.r.suiteId); return `<tr data-href="${traceHref(o.r.id, o.x.caseId)}"><td class="nowrap"><a href="${traceHref(o.r.id, o.x.caseId)}">${fmtDateTime(o.x.timestamp)}</a></td><td class="mono">${esc(o.x.caseId)}</td><td class="nowrap ink2">${esc(s ? s.name : '')}</td><td>${esc(o.r.version)}</td><td class="nowrap">${esc(o.r.model)}</td><td>${chip(o.x.verdict)}</td><td class="nowrap">${esc(o.x.category || '')}</td><td class="num">${fmtMs(o.x.latencyMs)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No executions match.</td></tr>'}
+    ${rows.map(o => { const s = getSuite(o.r.suiteId); return `<tr data-href="${traceHref(o.r.id, o.x.caseId)}"><td class="nowrap"><a href="${traceHref(o.r.id, o.x.caseId)}">${fmtDateTime(o.x.timestamp)}</a></td><td class="mono">${esc(o.x.caseId)}</td><td class="nowrap ink2">${esc(s ? s.name : '')}</td><td>${esc(o.r.version)}</td><td class="nowrap">${esc(o.r.model)}</td><td class="nowrap">${vchip(o.x)}</td><td class="nowrap">${esc(o.x.category || '')}</td><td class="num">${fmtMs(o.x.latencyMs)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="muted">No executions match.</td></tr>'}
     </tbody></table></div></div>`;
 }
 function pageLiveTraces(q) {
@@ -1606,6 +1688,7 @@ function pageLiveTraces(q) {
   return head('Traces', 'Every request your application sent, newest first. Open one to see its steps, timing, tokens and checks.', `<a class="btn" href="#/production${qs({ suite: q.suite })}">Production overview</a>`) + sourceTabs('live') +
     `<div class="panel">${filters}<div class="panel-head"><div class="actions">${vtabs}${chips}</div>${res.data ? `<span class="note" style="margin:0">Showing ${res.data.traces.length}${res.data.more ? ', newest first' : ''}</span>` : ''}</div>${body}</div>`;
 }
+const reviewedNote = x => x.review ? `<p class="note" style="margin-top:4px"><b>Reviewed by ${esc(x.review.reviewer || 'someone')}</b> on ${fmtDateTime(x.review.reviewedAt)}: ${esc(x.review.verdict)}${x.review.category ? ', ' + esc(x.review.category) : ''}.${x.review.note ? ' “' + esc(x.review.note) + '”' : ''} The automatic result was ${esc(x.review.autoVerdict)}${x.review.autoCategory ? ' (' + esc(x.review.autoCategory) + ')' : ''}.</p>` : '';
 function waterfallHtml(spans) {
   const total = Math.max(1, ...spans.map(sp => sp.start + sp.dur));
   return spans.length ? `<div class="wf">${spans.map(sp => { const attrs = Object.entries(sp.attrs || {}).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join('  '); return `<div class="wf-row"><span class="wf-name" style="padding-left:${sp.depth * 14}px" title="${esc(sp.name)}">${esc(sp.name)}</span><div class="wf-track"><div class="wf-bar k-${esc(sp.kind)}" style="left:${sp.start / total * 100}%;width:${sp.dur / total * 100}%"></div></div><span class="wf-dur">${fmtMs(sp.dur)}</span>${attrs ? `<div class="wf-attrs">${esc(attrs)}</div>` : ''}</div>`; }).join('')}</div>` : '<p class="muted">No spans were recorded for this execution.</p>';
@@ -1627,8 +1710,9 @@ function pageLiveTrace(runId, caseId) {
   return crumbs([['Production', '#/production' + qs({ suite: s.id })], [s.name, liveTracesHref({ suite: s.id })], [caseId]]) +
     `<div class="page-head"><div><h1><span class="mono" style="font-size:22px">${esc(caseId)}</span></h1><p class="sub">Production request · ${esc(s.name)} · ${esc(x.version || r.version)} · ${esc(x.model || r.model)}</p></div>
     <div class="actions">${prevX ? `<a class="btn" href="${traceHref(prevX.runId, prevX.caseId)}">Previous in session</a>` : ''}${nextX ? `<a class="btn" href="${traceHref(nextX.runId, nextX.caseId)}">Next in session</a>` : ''}
+      <a class="btn" href="${reviewHref(runId, caseId)}">${x.review ? 'Change review' : 'Review'}</a>
       ${done ? `<a class="btn" href="${caseHref(done.s.id, done.c.id)}">Open test case ${esc(done.c.id)}</a>` : `<button class="btn primary" data-action="promote-trace" data-run="${esc(runId)}" data-case="${esc(caseId)}">Add to test suite</button>`}</div></div>
-    <div class="verdict-banner ${x.verdict.toLowerCase()}"><div>${chip(x.verdict)}</div><div><div class="big">${esc(x.category || (x.verdict === 'Pass' ? 'Passed' : 'Needs review'))}</div><p>${esc(x.reason)}</p>${done ? `<p class="note" style="margin-top:4px">Added to ${esc(done.s.name)} as <a href="${caseHref(done.s.id, done.c.id)}">${esc(done.c.id)}</a>, so every test run checks it.</p>` : ''}</div></div>
+    <div class="verdict-banner ${x.verdict.toLowerCase()}"><div>${chip(x.verdict)}</div><div><div class="big">${esc(x.category || (x.verdict === 'Pass' ? 'Passed' : 'Needs review'))}</div><p>${esc(x.reason)}</p>${reviewedNote(x)}${done ? `<p class="note" style="margin-top:4px">Added to ${esc(done.s.name)} as <a href="${caseHref(done.s.id, done.c.id)}">${esc(done.c.id)}</a>, so every test run checks it.</p>` : ''}</div></div>
     <div class="panel"><dl class="meta" style="margin:0">
       <div><dt>Timestamp</dt><dd>${fmtDateTime(x.timestamp)}</dd></div><div><dt>Latency</dt><dd class="${s.slaMs && x.latencyMs > s.slaMs ? 'down' : ''}">${fmtMs(x.latencyMs)}</dd></div><div><dt>SLA</dt><dd>${fmtMs(r.slaMs || s.slaMs)}</dd></div>
       <div><dt>Version</dt><dd><a href="${liveTracesHref({ suite: s.id, version: x.version || r.version })}">${esc(x.version || r.version)}</a></dd></div><div><dt>Model</dt><dd>${esc(x.model || r.model)}</dd></div>
@@ -1657,8 +1741,8 @@ function pageTrace(runId, caseId) {
   const others = runsFor(r.suiteId).map(rr => { const y = rr.results.find(z => z.caseId === caseId); return y ? `<a href="${traceHref(rr.id, caseId)}" class="tag" style="${rr.id === r.id ? 'border-color:var(--ink);color:var(--ink);font-weight:600' : ''}" title="${esc(y.verdict)}"><span class="chip ${y.verdict.toLowerCase()}" style="padding:0 4px;background:none">${esc(rr.version)}</span></a>` : ''; }).join(' ');
   return crumbs([['Overview', '#/dashboard'], [s ? s.name : r.suiteId, s ? '#/suites/' + s.id : null], [caseId, s ? caseHref(s.id, caseId) : null], [`${r.version} run`, '#/results/' + r.id], ['Execution']]) +
     `<div class="page-head"><div><h1><span class="mono" style="font-size:22px">${esc(caseId)}</span> in ${esc(r.version)}</h1><p class="sub">${esc(s ? s.name : '')} · ${esc(r.model)}</p></div>
-    <div class="actions">${prevX ? `<a class="btn" href="${traceHref(r.id, prevX.caseId)}">Previous case</a>` : ''}${nextX ? `<a class="btn" href="${traceHref(r.id, nextX.caseId)}">Next case</a>` : ''}${px ? `<a class="btn" href="#/compare${qs({ suite: r.suiteId, a: pr.id, b: r.id })}">Compare runs</a>` : ''}</div></div>
-    <div class="verdict-banner ${x.verdict.toLowerCase()}"><div>${chip(x.verdict)}</div><div><div class="big">${esc(x.category || (x.verdict === 'Pass' ? 'Passed' : 'Needs review'))}</div><p>${esc(x.reason)}</p>${px ? `<p class="note" style="margin-top:4px">In ${esc(pr.version)} this case was <b>${esc(px.verdict)}</b>${px.category ? ` (${esc(px.category)})` : ''} at ${fmtMs(px.latencyMs)}.</p>` : ''}</div></div>
+    <div class="actions">${prevX ? `<a class="btn" href="${traceHref(r.id, prevX.caseId)}">Previous case</a>` : ''}${nextX ? `<a class="btn" href="${traceHref(r.id, nextX.caseId)}">Next case</a>` : ''}${px ? `<a class="btn" href="#/compare${qs({ suite: r.suiteId, a: pr.id, b: r.id })}">Compare runs</a>` : ''}<a class="btn ${x.verdict === 'Review' && !x.review ? 'primary' : ''}" href="${reviewHref(r.id, caseId)}">${x.review ? 'Change review' : 'Review'}</a></div></div>
+    <div class="verdict-banner ${x.verdict.toLowerCase()}"><div>${chip(x.verdict)}</div><div><div class="big">${esc(x.category || (x.verdict === 'Pass' ? 'Passed' : 'Needs review'))}</div><p>${esc(x.reason)}</p>${reviewedNote(x)}${px ? `<p class="note" style="margin-top:4px">In ${esc(pr.version)} this case was <b>${esc(px.verdict)}</b>${px.category ? ` (${esc(px.category)})` : ''} at ${fmtMs(px.latencyMs)}.</p>` : ''}</div></div>
     <div class="panel"><dl class="meta" style="margin:0">
       <div><dt>Timestamp</dt><dd>${fmtDateTime(x.timestamp)}</dd></div><div><dt>Latency</dt><dd class="${r.slaMs && x.latencyMs > r.slaMs ? 'down' : ''}">${fmtMs(x.latencyMs)}</dd></div><div><dt>SLA</dt><dd>${fmtMs(r.slaMs)}</dd></div>
       <div><dt>Model</dt><dd>${esc(r.model)}</dd></div><div><dt>Version</dt><dd>${esc(r.version)}</dd></div><div><dt>Run</dt><dd><a href="#/results/${esc(r.id)}" class="mono">${esc(r.id)}</a></dd></div><div><dt>Target</dt><dd>${esc(Targets[r.target] ? Targets[r.target].label : r.target)}</dd></div>
@@ -1668,6 +1752,96 @@ function pageTrace(runId, caseId) {
     <div class="grid2"><div class="panel"><h2>Execution trace</h2><p class="hint">Where the ${fmtMs(x.latencyMs)} went.</p>${wf}</div>
       <div class="panel"><h2>Evaluator results</h2><p class="hint">Each check the suite ran on this output.</p>${checks}<h3 style="font-size:13px;margin:18px 0 8px">This case in other runs</h3><div style="display:flex;gap:6px;flex-wrap:wrap">${others}</div></div></div>`;
 }
+/* Review queue */
+const REVIEW_KINDS = { pending: 'Waiting', spot: 'Spot checks', done: 'Reviewed' };
+const reviewCtx = q => ({ kind: q.kind && q.kind !== 'pending' ? q.kind : '', suite: q.suite, source: q.source, reason: q.reason });
+function whatToJudge(x, isSpot) {
+  const manual = (x.checks || []).find(c => c.manual), partial = (x.checks || []).find(c => c.partial);
+  if (manual) return { title: 'Judge it against this rubric', text: manual.detail };
+  if (partial) return { title: 'A check was only partly met', text: `${partial.label}: ${partial.detail}. Decide whether the answer is still acceptable.` };
+  if (isSpot) return { title: 'Spot check', text: 'This production request passed its automatic checks. Does the answer actually look right?' };
+  if (x.verdict === 'Review' && !(x.checks || []).length) return { title: 'No automatic checks', text: 'Nothing checks this case automatically. Decide whether the answer is right.' };
+  return { title: 'Decide whether the automatic result is right', text: x.reason };
+}
+function pageReviewQueue(q) {
+  const kind = REVIEW_KINDS[q.kind] ? q.kind : 'pending'; const ctx = reviewCtx(q);
+  const res = Reviews.queue({ kind, suite: q.suite, source: q.source, reason: kind === 'pending' ? q.reason : '', limit: 100 });
+  const sub = 'Results the automatic checks could not decide, and spot checks of production. Your decision replaces the automatic verdict in pass rates, comparisons and production numbers. The automatic verdict is kept.';
+  if (res.error) return head('Review queue', sub) + errorPanel(res.error);
+  if (!res.data) return head('Review queue', sub) + loadingPanel('Loading the queue…');
+  const d = res.data; const first = d.items[0];
+  const tabs = `<div class="tabs" role="tablist">${Object.entries(REVIEW_KINDS).map(([k, label]) => `<a role="tab" class="${kind === k ? 'on' : ''}" href="#/review${qs({ ...ctx, kind: k === 'pending' ? '' : k, reason: k === 'pending' ? q.reason : '' })}">${label} (${d.counts[k]})</a>`).join('')}</div>`;
+  const filters = `<div class="filters" data-filter-page="review"><input type="hidden" data-filter="kind" value="${esc(ctx.kind)}">
+    <label class="field" style="width:230px"><span>Suite or application</span><select data-filter="suite"><option value="">All</option>${Store.state.suites.map(s => `<option value="${esc(s.id)}" ${q.suite === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    <label class="field" style="width:230px"><span>From</span><select data-filter="source"><option value="">Test runs and production</option><option value="runs" ${q.source === 'runs' ? 'selected' : ''}>Test runs</option><option value="live" ${q.source === 'live' ? 'selected' : ''}>Production</option></select></label>
+    ${kind === 'pending' ? `<label class="field" style="width:200px"><span>Why it needs review</span><select data-filter="reason"><option value="">Any reason</option>${REVIEW_REASONS.map(r => `<option ${q.reason === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>` : ''}</div>`;
+  const hint = { pending: 'Newest first. Open one to decide, and the next opens after you save.', spot: `1 in ${SPOT_EVERY} production requests that passed their checks, to catch what the checks miss.`, done: 'Most recent decision first. Open one to change or undo it.' }[kind];
+  const rows = d.items.map(it => { const s = getSuite(it.suiteId); const h = reviewHref(it.runId, it.caseId, ctx);
+    return `<tr data-href="${h}"><td class="nowrap"><a href="${h}">${fmtDateTime(kind === 'done' ? it.review.reviewedAt : it.timestamp)}</a></td><td class="nowrap ink2">${esc(s ? s.name : it.suiteId)}<div class="muted" style="font-size:12.5px">${it.source === 'live' ? 'Production' : 'Test run ' + esc(it.runId)} · ${esc(it.version)}</div></td>
+      <td class="mono nowrap">${esc(it.caseId)}</td><td><div class="clip">${esc(it.input)}</div></td>
+      ${kind === 'done' ? `<td>${chip(it.review.verdict)}${it.review.category ? `<div class="muted" style="font-size:12.5px">${esc(it.review.category)}</div>` : ''}</td><td><div class="clip ink2">${esc(it.review.note || '')}</div><div class="muted" style="font-size:12.5px">${esc(it.review.reviewer || '')} · automatic: ${esc(it.review.autoVerdict)}</div></td>`
+        : `<td class="nowrap">${esc(kind === 'spot' ? 'Passed its checks' : it.category || '')}</td><td><div class="clip mono ink2">${esc(it.actual)}</div></td>`}</tr>`; }).join('');
+  const heads = kind === 'done' ? '<th>Decision</th><th>Note</th>' : '<th>Why</th><th>Output</th>';
+  const empty = { pending: 'Nothing is waiting for review.', spot: 'No production requests to spot-check.', done: 'Nothing has been reviewed yet.' }[kind];
+  return head('Review queue', sub, first && kind !== 'done' ? `<a class="btn primary" href="${reviewHref(first.runId, first.caseId, ctx)}">Start reviewing</a>` : '') +
+    `<div class="panel">${filters}<div class="panel-head"><div>${tabs}</div><span class="note" style="margin:0">${esc(hint)}</span></div>
+    ${d.items.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${kind === 'done' ? 'Reviewed' : 'Time'}</th><th>Where</th><th>Case</th><th>Input</th>${heads}</tr></thead><tbody>${rows}</tbody></table></div>${d.total > d.items.length ? `<p class="note">Showing the first ${d.items.length} of ${d.total}.</p>` : ''}`
+      : `<p class="muted" style="margin:0">${empty}</p>`}</div>`;
+}
+function pageReviewItem(runId, caseId, q) {
+  const ctx = reviewCtx(q); const queueHref = '#/review' + qs(ctx);
+  const t = Reviews.target(runId, caseId);
+  if (t.error) return notFound(t.error);
+  const kind = REVIEW_KINDS[q.kind] ? q.kind : 'pending';
+  const list = Reviews.queue({ kind, suite: q.suite, source: q.source, reason: kind === 'pending' ? q.reason : '', limit: 200 });
+  if (!t.data) return crumbs([['Review queue', queueHref], [caseId]]) + loadingPanel('Loading…');
+  const { run: r, suite: s, result: x } = t.data;
+  const items = list.data ? list.data.items : []; const i = items.findIndex(it => it.runId === runId && it.caseId === caseId);
+  const prev = i > 0 ? items[i - 1] : null, next = i >= 0 ? items[i + 1] : (items.find(it => !(it.runId === runId && it.caseId === caseId)) || null);
+  const judge = whatToJudge(x, isLive(r) && isSpotCheck(caseId));
+  const rv = x.review; const auto = rv ? { verdict: rv.autoVerdict, category: rv.autoCategory } : { verdict: x.verdict, category: x.category };
+  let reviewer = ''; try { reviewer = localStorage.getItem(REVIEWER_LS) || ''; } catch (e) {}
+  const picked = rv ? rv.verdict : '';
+  const defCat = rv && rv.category ? rv.category : CATEGORIES.includes(auto.category) ? auto.category : '';
+  const pos = i >= 0 ? `${i + 1} of ${list.data.total}` : rv ? 'Reviewed' : '';
+  const form = `<div class="panel"><h2>${rv ? 'Your decision' : 'Decide'}</h2><p class="hint">${rv ? `Reviewed by ${esc(rv.reviewer || 'someone')} on ${fmtDateTime(rv.reviewedAt)}. Change it below, or undo it to go back to the automatic result.` : 'Your decision counts instead of the automatic one.'}</p>
+    <div class="radio-cards" role="radiogroup" aria-label="Decision">
+      <label class="radio-card"><input type="radio" name="rv-verdict" value="Pass" ${picked === 'Pass' ? 'checked' : ''}><div><b>Pass</b><small>The answer is acceptable.</small></div></label>
+      <label class="radio-card"><input type="radio" name="rv-verdict" value="Fail" ${picked === 'Fail' ? 'checked' : ''}><div><b>Fail</b><small>The answer is not acceptable.</small></div></label></div>
+    <div class="form-grid" style="margin-top:14px">
+      <label class="field full" id="rv-cat-wrap" ${picked === 'Fail' ? '' : 'hidden'}><span>Why it failed</span><select id="rv-cat"><option value="">Choose a reason</option>${CATEGORIES.map(c => `<option ${defCat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field full"><span>Note (optional)</span><textarea id="rv-note" maxlength="1000" placeholder="What is right or wrong about it">${esc(rv ? rv.note : '')}</textarea></label>
+      <label class="field full"><span>Your name</span><input type="text" id="rv-name" maxlength="80" value="${esc(reviewer)}" autocomplete="name"><small>Saved with the decision and remembered in this browser.</small></label></div>
+    <p class="err" id="rv-err" hidden></p>
+    <div class="modal-foot" style="justify-content:flex-start;flex-wrap:wrap">
+      <button class="btn primary" data-action="save-review" data-run="${esc(runId)}" data-case="${esc(caseId)}" data-next="${next ? esc(reviewHref(next.runId, next.caseId, ctx)) : esc(queueHref)}">${next ? 'Save and next' : 'Save'}</button>
+      ${rv ? `<button class="btn" data-action="undo-review" data-run="${esc(runId)}" data-case="${esc(caseId)}">Undo review</button>` : ''}</div></div>`;
+  return crumbs([['Review queue', queueHref], [caseId]]) +
+    `<div class="page-head"><div><h1>Review <span class="mono" style="font-size:22px">${esc(caseId)}</span></h1><p class="sub">${pos ? esc(pos) + ' · ' : ''}${esc(s.name)} · ${isLive(r) ? 'Production' : 'Test run ' + esc(r.id)} · ${esc(x.version || r.version)} · ${esc(x.model || r.model)}</p></div>
+    <div class="actions">${prev ? `<a class="btn" href="${reviewHref(prev.runId, prev.caseId, ctx)}">Previous</a>` : ''}${next ? `<a class="btn" href="${reviewHref(next.runId, next.caseId, ctx)}">Skip</a>` : ''}<a class="btn" href="${traceHref(runId, caseId)}">Open full trace</a></div></div>
+    <div class="verdict-banner review"><div>${chip(auto.verdict)}</div><div><div class="big">${esc(judge.title)}</div><p>${esc(judge.text)}</p><p class="note" style="margin-top:4px">Automatic result: ${esc(auto.verdict)}${auto.category ? ' · ' + esc(auto.category) : ''}.</p></div></div>
+    <div class="panel"><h2>Input and output</h2>
+      <div class="io"${x.expected ? '' : ' style="grid-template-columns:repeat(2,minmax(0,1fr))"'}><div class="box"><h3>Input</h3><pre>${esc(x.input)}</pre></div>${x.expected ? `<div class="box"><h3>Expected behaviour</h3><pre>${esc(x.expected)}</pre></div>` : ''}<div class="box actual review"><h3>Actual output</h3><pre>${esc(x.actual || '(empty)')}</pre></div></div></div>
+    <div class="grid2">${form}<div class="panel"><h2>Automatic checks</h2><p class="hint">What the checks found.</p>${checksHtml(x, r.slaMs || s.slaMs)}</div></div>`;
+}
+async function saveReview(a) {
+  const err = m => { const e = $('#rv-err'); e.hidden = false; e.textContent = m; };
+  const verdict = ($('input[name=rv-verdict]:checked') || {}).value; const category = $('#rv-cat').value; const reviewer = $('#rv-name').value.trim();
+  if (!verdict) return err('Choose Pass or Fail.');
+  if (verdict === 'Fail' && !category) return err('Choose why it failed.');
+  if (!reviewer) return err('Add your name, so others know who decided.');
+  try { localStorage.setItem(REVIEWER_LS, reviewer); } catch (e) {}
+  a.disabled = true;
+  try { await Reviews.save(a.dataset.run, a.dataset.case, { verdict, category: verdict === 'Fail' ? category : null, note: $('#rv-note').value, reviewer }); }
+  catch (e) { a.disabled = false; return err(e.message); }
+  toast(`Saved: ${verdict}`); go(a.dataset.next); route();
+}
+async function undoReviewAction(a) {
+  a.disabled = true;
+  try { await Reviews.save(a.dataset.run, a.dataset.case, null); } catch (e) { a.disabled = false; return toast(e.message); }
+  toast('Review undone. The automatic result counts again'); route();
+}
+
 function notFound(msg) { return `<div class="panel empty"><h3>${esc(msg)}</h3><p><a href="#/dashboard">Go to the dashboard</a></p></div>`; }
 
 /* ---------------- Modals & forms ---------------- */
@@ -1869,6 +2043,7 @@ function route() {
     case 'results': html = parts[1] ? pageRunDetail(parts[1], q) : pageResults(q); break;
     case 'compare': html = pageCompare(q); break;
     case 'traces': html = pageTraces(q); break;
+    case 'review': html = parts[1] ? pageReviewItem(parts[1], parts[2], q) : pageReviewQueue(q); nav = 'review'; break;
     case 'trace': html = pageTrace(parts[1], parts[2]); nav = 'traces'; break;
     default: html = demoBanner() + pageDashboard(q); nav = 'dashboard';
   }
@@ -1910,6 +2085,8 @@ document.addEventListener('click', e => {
       case 'retry-live': Prod.clear(); route(); break;
       case 'promote-trace': modalPromote(a.dataset.run, a.dataset.case); break;
       case 'save-promote': savePromote(a.dataset.run, a.dataset.case, a); break;
+      case 'save-review': saveReview(a); break;
+      case 'undo-review': undoReviewAction(a); break;
       case 'new-suite': modalSuite(); break;
       case 'save-suite': saveSuite(); break;
       case 'import-suite': modalImport(); break;
@@ -1952,6 +2129,8 @@ document.addEventListener('change', e => {
     const ok = sel.length === 2 && sel[0].dataset.suite === sel[1].dataset.suite;
     btn.disabled = !ok; btn.title = sel.length === 2 && !ok ? 'Pick two runs of the same suite' : '';
     if (sel.length > 2) { el.checked = false; toast('Select two runs to compare'); }
+  } else if (el.name === 'rv-verdict') {
+    $('#rv-cat-wrap').hidden = el.value !== 'Fail';
   } else if (el.id === 'run-suite') {
     go('#/run' + qs({ suite: el.value }));
   }

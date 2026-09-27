@@ -960,8 +960,8 @@
           "input": "A story about a small town that wakes up to find the river has gone silent.",
           "expected": "A complete story with a beginning, a turn and an ending.",
           "actual": "On Tuesday the town woke to a strange quiet: the river had stopped talking. Old Mr. Rao, who had listened to it for eighty years, walked upstream and found a fallen branch wedged between the stones. He pulled it free. The river burst into chatter, and one by one the whole town stepped outside to hear it.",
-          "verdict": "Review",
-          "category": "Awaiting human review",
+          "verdict": "Pass",
+          "category": null,
           "reason": "Needs a reviewer to judge: has a clear beginning, a turn and an ending, and reads naturally",
           "checks": [
             {
@@ -1019,7 +1019,16 @@
               "depth": 1,
               "attrs": {}
             }
-          ]
+          ],
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Clear beginning, turn and ending. Reads naturally.",
+            "reviewer": "Priya",
+            "reviewedAt": 1785976920000,
+            "autoVerdict": "Review",
+            "autoCategory": "Awaiting human review"
+          }
         },
         {
           "caseId": "DS-010",
@@ -1737,8 +1746,8 @@
           "input": "A story about a small town that wakes up to find the river has gone silent.",
           "expected": "A complete story with a beginning, a turn and an ending.",
           "actual": "On Tuesday the town woke to a strange quiet: the river had stopped talking. Old Mr. Rao, who had listened to it for eighty years, walked upstream and found a fallen branch wedged between the stones. He pulled it free. The river burst into chatter, and one by one the whole town stepped outside to hear it.",
-          "verdict": "Review",
-          "category": "Awaiting human review",
+          "verdict": "Pass",
+          "category": null,
           "reason": "Needs a reviewer to judge: has a clear beginning, a turn and an ending, and reads naturally",
           "checks": [
             {
@@ -1796,7 +1805,16 @@
               "depth": 1,
               "attrs": {}
             }
-          ]
+          ],
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Clear beginning, turn and ending. Reads naturally.",
+            "reviewer": "Priya",
+            "reviewedAt": 1787033400000,
+            "autoVerdict": "Review",
+            "autoCategory": "Awaiting human review"
+          }
         },
         {
           "caseId": "DS-010",
@@ -2514,8 +2532,8 @@
           "input": "A story about a small town that wakes up to find the river has gone silent.",
           "expected": "A complete story with a beginning, a turn and an ending.",
           "actual": "On Tuesday the town woke to a strange quiet: the river had stopped talking. Old Mr. Rao, who had listened to it for eighty years, walked upstream and found a fallen branch wedged between the stones. He pulled it free. The river burst into chatter, and one by one the whole town stepped outside to hear it.",
-          "verdict": "Review",
-          "category": "Awaiting human review",
+          "verdict": "Pass",
+          "category": null,
           "reason": "Needs a reviewer to judge: has a clear beginning, a turn and an ending, and reads naturally",
           "checks": [
             {
@@ -2573,7 +2591,16 @@
               "depth": 1,
               "attrs": {}
             }
-          ]
+          ],
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Clear beginning, turn and ending. Reads naturally.",
+            "reviewer": "Priya",
+            "reviewedAt": 1788053700000,
+            "autoVerdict": "Review",
+            "autoCategory": "Awaiting human review"
+          }
         },
         {
           "caseId": "DS-010",
@@ -6330,7 +6357,16 @@
           },
           "tokensIn": 76,
           "tokensOut": 91,
-          "costUsd": 0.0011
+          "costUsd": 0.0011,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Reads well and fits the prompt.",
+            "reviewer": "Sam",
+            "reviewedAt": 1788776544069,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00021",
@@ -10500,7 +10536,16 @@
           },
           "tokensIn": 74,
           "tokensOut": 98,
-          "costUsd": 0.001165
+          "costUsd": 0.001165,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Good story, right length.",
+            "reviewer": "Sam",
+            "reviewedAt": 1788935505241,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00061",
@@ -16774,7 +16819,16 @@
           },
           "tokensIn": 76,
           "tokensOut": 93,
-          "costUsd": 0.00112
+          "costUsd": 0.00112,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Fine. Keeps to the genre.",
+            "reviewer": "Sam",
+            "reviewedAt": 1789199463902,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00121",
@@ -21038,7 +21092,16 @@
           },
           "tokensIn": 74,
           "tokensOut": 96,
-          "costUsd": 0.001145
+          "costUsd": 0.001145,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "On topic and complete.",
+            "reviewer": "Sam",
+            "reviewedAt": 1789349889492,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00161",
@@ -25286,7 +25349,16 @@
           },
           "tokensIn": 76,
           "tokensOut": 98,
-          "costUsd": 0.00117
+          "costUsd": 0.00117,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Reads well and fits the prompt.",
+            "reviewer": "Sam",
+            "reviewedAt": 1789476974681,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00201",
@@ -29526,7 +29598,16 @@
           },
           "tokensIn": 74,
           "tokensOut": 97,
-          "costUsd": 0.001155
+          "costUsd": 0.001155,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Good story, right length.",
+            "reviewer": "Sam",
+            "reviewedAt": 1789697494619,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00241",
@@ -33758,7 +33839,16 @@
           },
           "tokensIn": 74,
           "tokensOut": 80,
-          "costUsd": 0.000985
+          "costUsd": 0.000985,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Fine. Keeps to the genre.",
+            "reviewer": "Sam",
+            "reviewedAt": 1789872754975,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00281",
@@ -40114,7 +40204,16 @@
           },
           "tokensIn": 71,
           "tokensOut": 78,
-          "costUsd": 0.0009575
+          "costUsd": 0.0009575,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "On topic and complete.",
+            "reviewer": "Sam",
+            "reviewedAt": 1790062304623,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00341",
@@ -44399,7 +44498,16 @@
           },
           "tokensIn": 75,
           "tokensOut": 81,
-          "costUsd": 0.00005985
+          "costUsd": 0.00005985,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Reads well and fits the prompt.",
+            "reviewer": "Sam",
+            "reviewedAt": 1790217520553,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00381",
@@ -48639,7 +48747,16 @@
           },
           "tokensIn": 72,
           "tokensOut": 79,
-          "costUsd": 0.0000582
+          "costUsd": 0.0000582,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Good story, right length.",
+            "reviewer": "Sam",
+            "reviewedAt": 1790384747596,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00421",
@@ -52935,7 +53052,16 @@
           },
           "tokensIn": 74,
           "tokensOut": 91,
-          "costUsd": 0.0000657
+          "costUsd": 0.0000657,
+          "review": {
+            "verdict": "Pass",
+            "category": null,
+            "note": "Fine. Keeps to the genre.",
+            "reviewer": "Sam",
+            "reviewedAt": 1790440200000,
+            "autoVerdict": "Pass",
+            "autoCategory": null
+          }
         },
         {
           "caseId": "LIVE-00461",

@@ -144,6 +144,10 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
     return {"verdict": "Pass", "category": None, "reason": "All automated checks passed.", "checks": checks}
 
 
+# Failure categories a reviewer can choose. Same as CATEGORIES in the frontend.
+CATEGORIES = ["Incorrect answer", "Hallucination", "Incomplete answer", "Format violation", "Instruction not followed",
+              "Policy violation", "Unwarranted refusal", "Off-topic response", "Latency SLA breach", "Execution error"]
+
 TOKENS_IN = ("prompt_tokens", "input_tokens")
 TOKENS_OUT = ("completion_tokens", "output_tokens")
 

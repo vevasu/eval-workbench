@@ -87,12 +87,13 @@ Done when: the example apps, used through their own web pages, show up on the Pr
 
 ## Phase 8: Human review queue
 
-Next. Review results (partial matches, human rubrics) currently wait forever and never count as passes.
+Built. Review results (partial matches, human rubrics) used to wait forever and never count as passes.
 
-- A queue of results waiting for review, from test runs and production, with filters by suite, reason and age.
-- A reviewer marks a result Pass or Fail, with a failure category and a note. The automatic verdict is kept; the reviewed verdict is stored next to it, with who and when.
-- Pass rates, comparisons and the Production page use the reviewed verdict where there is one.
-- Optional sampling of passing production requests into the queue, to catch what the checks miss.
+- A **Review queue** page with three tabs: Waiting (results with verdict Review), Spot checks (1 in 20 production requests that passed their checks, picked by the number in their id) and Reviewed. Filters by suite, source (test runs or production) and reason.
+- Reviewing one item shows what to judge (the rubric, the partly met check, or a spot check), the input, expected behaviour and output, and the checks. The reviewer picks Pass or Fail, a failure category for a Fail, a note and their name (remembered in the browser), then **Save and next**. Any result can be reviewed from its trace, and a review can be changed or undone.
+- A decision replaces `verdict` and `category`, so pass rates, comparisons, the dashboard and the Production page all use it. `review` keeps the reviewer, time, note and the automatic verdict and category. `GET /reviews`, `POST` and `DELETE /runs/{run}/results/{case}/review`.
+
+Done when: a reviewer can work through the queue in demo and API mode, the run's pass rate changes with their decisions, and undo restores the automatic result.
 
 ## Phase 9: CI integration
 

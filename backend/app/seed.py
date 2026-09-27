@@ -68,7 +68,9 @@ def seed(session: Session, project_id: str = DEMO_PROJECT_ID) -> None:
                 model=result_data.get("model", ""), version=result_data.get("version", ""),
                 user_id=result_data.get("userId"), session_id=result_data.get("sessionId"), tags=result_data.get("tags"),
                 meta=result_data.get("metadata"), tokens_in=result_data.get("tokensIn"),
-                tokens_out=result_data.get("tokensOut"), cost_usd=result_data.get("costUsd"))
+                tokens_out=result_data.get("tokensOut"), cost_usd=result_data.get("costUsd"),
+                review=result_data.get("review"),
+                reviewed_at=(result_data.get("review") or {}).get("reviewedAt"))
             session.add(result)
             session.flush()
             for span_data in result_data.get("spans", []):

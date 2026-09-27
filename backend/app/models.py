@@ -96,6 +96,10 @@ class Result(SQLModel, table=True):
     tokens_in: Optional[int] = None
     tokens_out: Optional[int] = None
     cost_usd: Optional[float] = None
+    # A person's decision. verdict and category then hold it, and review keeps the automatic ones:
+    # {verdict, category, note, reviewer, reviewedAt, autoVerdict, autoCategory}. reviewed_at is for filtering.
+    review: Any = Field(default=None, sa_column=Column(JSON))
+    reviewed_at: Optional[int] = Field(default=None, sa_column=ms_column(nullable=True))
 
 
 class Span(SQLModel, table=True):
