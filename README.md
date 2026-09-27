@@ -1,41 +1,43 @@
 # Eval Workbench
 
-Evaluate, debug and monitor the quality of AI applications: evaluation suites, production monitoring, an AI judge, human review, execution telemetry, failure analysis and run comparison.
+A lightweight evaluation and observability workbench for LLM applications.
 
-Your application sends data to the Workbench, the way it would to LangSmith or Arize. The Workbench never calls into your application.
+It helps teams create structured evaluation cases, run LLM responses against expected behavior, identify failures, and track regressions as prompts or models change.
 
-## Frontend on its own (demo mode)
+## Live Demo
+https://eval-workbench-917841678315.us-central1.run.app/#/dashboard 
 
-Open `frontend/index.html` in a browser, or serve it:
+## Why EvalWorkbench?
 
-```
-cd frontend
-python -m http.server 8000
-```
+LLM applications can produce convincing responses while still failing on ambiguity, edge cases, structured outputs, or changes to prompts and models.
 
-Sample data loads on first visit and is saved in the browser. This mode does not need the backend.
+EvalWorkbench provides a simple evaluation workflow:
 
-## Backend and web app together
+Define → Run → Evaluate → Analyze → Re-test
 
-```
-cd backend
-pip install -r requirements.txt
-copy .env.example .env          # set EVAL_WORKBENCH_ADMIN_KEY to a long random string
-python -m app.seed              # loads data/sample-data.json into a demo project, prints a demo API key once
-python -m uvicorn app.main:app  # API and web app at http://127.0.0.1:8000
-```
+Instead of evaluating an AI application manually one prompt at a time, test cases can be captured and evaluated systematically.
 
-Open http://127.0.0.1:8000, choose **Connect to API** in the sidebar, and paste the key. Every page then reads live data from the API. Suites and test cases can be uploaded (**Import suite**, JSON or CSV), added, edited and deleted in the app; runs come from your code through the SDK.
-
-- Docs for the API: http://127.0.0.1:8000/docs
-- Create more projects and keys with `POST /admin/projects` and `POST /admin/projects/{id}/keys`, using `Authorization: Bearer <admin key>`. Keys are stored as hashes and shown once.
-- Tests: `cd backend && pip install pytest && python -m pytest`
-
-## Public demo and private beta
-
-Live at https://eval-workbench-5lofnwh6hq-uc.a.run.app (Google Cloud Run, Neon Postgres). Visitors see the sample data, a **Get started** guide, and can request access. You approve requests at `/admin.html` or with `python -m app.manage approve <id>`, which creates their project and API key. See `docs/BETA.md` for the operator guide, deployment, configuration and limits.
+## What it does
+- Create and manage structured LLM evaluation test cases
+- Define expected behavior for each test case
+- Run test cases against an LLM application
+- Compare actual responses with expected outcomes
+- Classify results as Pass, Fail, or Review
+- Capture evaluation results for individual test cases
+- Identify recurring failure patterns
+- Inspect evaluation runs and response details
+- Track regressions when prompts or application behavior change
+- Provide visibility into response latency and evaluation outcomes
+- Upload, edit and import test suites (JSON or CSV) straight in the web app
+- Monitor production traffic: every live request scored as it arrives, with failure rate, latency, tokens and cost over time, and a comparison of each deployed version
+- Check live prompts against your suite: a prompt that is the same as a test case's input is checked by that test case too
+- Turn a failing live request into a test case with one click
+- Review queue: a person decides the results the checks can't, plus spot checks of production, and their decision counts in every pass rate
+- Optional AI judge: a model decides what rules can't, such as "did it do what was asked", using your own OpenAI key
 
 ## Python SDK
+
+Eval Workbench includes a Python SDK for running evaluation suites from your own application and sending execution results, traces, and spans back to the workbench.
 
 ```
 pip install -e sdk/python     # from this repository
@@ -57,28 +59,21 @@ print(result.url)
 
 The SDK runs each test case through your function in your own process, times it, records nested spans, uploads the outputs, and the backend scores them. Errors in your function become execution errors. Tests: `cd sdk/python && python -m pytest`.
 
-For production traffic, wrap the function that handles a real request:
+To monitor production, wrap the function that handles a real request. It runs as normal, and the request, its steps, tokens and cost go to the Workbench in the background without slowing or breaking your app:
 
 ```python
 answer = client.observe("support-bot", my_app, user_input, suite_name="Support bot", version="v1.1", model="gpt-4o-mini",
-                        user_id=user.id, session_id=conversation.id, tags=["billing"],
+                        user_id=user.id, session_id=conversation.id,
                         checks=[{"type": "not_contains", "values": ["I cannot help"]}])
 ```
 
-It runs your function as normal and sends the request, its spans, tokens and cost to the Workbench in the background, without slowing or breaking your app. The **Production** page then shows failure rate, latency, tokens and cost over time and per deployed version, and **Add to test suite** turns a failing request into a test case. When a live prompt is the same as one of your test cases' inputs, that test case's checks are used on it too, so changing and importing your suite shows up on the next request. On the Production page you can also set **checks on live traffic** for each application, including an **AI judge** that uses your own OpenAI key to decide things rules can't, such as "did it do what was asked". The **Review queue** collects results the checks can't decide, plus spot checks of production, for a person to mark pass or fail; their decision counts in every pass rate.
-
-## Example applications
-
-- `examples/story-generator`: a small OpenAI-backed story writer (80 words or fewer) with an eval suite and live tracing (sessions, tags, tokens and cost). See its README.
-- `examples/writer-critic`: a multi-agent app (Planner, Writer, Critic, Editor) with a critique-and-revise loop, a live web UI, and optional tracing with one span per agent. See its README.
 
 ## Repository
 
 - `frontend/` the web app (single file, no build step) `admin.html`, the operator page for access requests, and `privacy.html`, the privacy notice
 - `backend/` FastAPI + SQLite service: API keys, write API, server-side scoring, seed command, tests
-- `sdk/python/` Python client with `run_suite`, `@trace` and `span()`
-- `examples/` example applications that use the SDK
+- `sdk/python/` Python client with `run_suite`, `observe`, `@trace` and `span()`
+- `docs/` the build plan (`BUILD_PLAN.md`) and the operator guide for the hosted beta (`BETA.md`)
 - `data/sample-data.json` sample suites and run history, used to seed the backend
 - `templates/` CSV and JSON templates for importing a suite
-- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 8b are built; CI integration is next)
 - `CLAUDE.md` project context for Claude Code

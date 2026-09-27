@@ -63,7 +63,7 @@ Projects save their own model key (Production page, Checks on live traffic). It 
 
 ### Current deployment
 
-The example story generator can run as a second Cloud Run service, `story-generator`, whose visitors enter their own OpenAI key and whose traffic appears on the Workbench's Production page. See "Put it online" in `examples/story-generator/README.md`.
+The example story generator runs as a second Cloud Run service, `story-generator`, whose visitors enter their own OpenAI key and whose traffic appears on the Workbench's Production page. Its code is no longer in this repository; the last version, with its deployment steps ("Put it online" in its README), is at commit `eed0ed6` (`git checkout eed0ed6 -- examples/story-generator`).
 
 Live on Google Cloud Run: service `eval-workbench`, region `us-central1`, at https://eval-workbench-5lofnwh6hq-uc.a.run.app. The database is Neon Postgres. `DATABASE_URL` and `EVAL_WORKBENCH_ADMIN_KEY` come from Secret Manager (secrets `eval-workbench-db` and `eval-workbench-admin`); `EVAL_WORKBENCH_ENV=production` and `TRUST_PROXY=1` are plain environment variables. To redeploy from the repository root:
 

@@ -1043,7 +1043,7 @@ const SEED_SUITES = [
 ];
 
 /* Demo production traffic: three weeks of requests to the story generator, as client.observe() records them from
-   examples/story-generator. v1.4 (a smaller model, deployed on 23 Sep right after test run DS-R5) writes long more
+   the example story generator app. v1.4 (a smaller model, deployed on 23 Sep right after test run DS-R5) writes long more
    often, so the word limiter cuts more stories off, and it sometimes ignores the bedtime rule. On 9 Sep the model
    provider was unreachable for an hour. */
 const LIVE_STORY_CHECKS = [{ type: 'not_contains', values: ['…'], category: 'Incomplete answer' }, STORY_WORD_LIMIT];
@@ -1083,7 +1083,7 @@ const LIVE_SEED = {
 };
 // New conversations per hour, by hour of day in India time, where most of the demo app's users are.
 const LIVE_SESSIONS_PER_HOUR = [0.1, 0.05, 0.05, 0, 0, 0.05, 0.15, 0.3, 0.45, 0.55, 0.6, 0.65, 0.7, 0.65, 0.6, 0.6, 0.65, 0.75, 0.9, 1, 0.95, 0.75, 0.45, 0.25];
-// Same as limit_words() in examples/story-generator/story.py.
+// Same as limit_words() in the example story generator app.
 const limitWords = (text, n = 80) => { const w = text.split(/\s+/).filter(Boolean); return w.length <= n ? text.trim() : w.slice(0, n).join(' ').replace(/[,;:]+$/, '') + '…'; };
 function buildLiveRuns(suite) {
   const rand = prng(hash('live:' + suite.id)); const IST = 5.5 * HOUR_MS;
