@@ -21,7 +21,9 @@ LIVE_SUITE_ID = "story-generator-live"
 LIVE_SUITE_NAME = "Story generator (live)"
 LIVE_CHECKS = [
     {"type": "not_contains", "values": ["…"], "category": "Incomplete answer"},
-    {"type": "regex", "pattern": "^\\s*(\\S+\\s+){0,79}\\S+\\s*$", "category": "Instruction not followed"},
+    # 80 words or fewer. Long and short dashes separate words, as in limit_words().
+    {"type": "regex", "pattern": "^[\\s\\u2014\\u2013]*([^\\s\\u2014\\u2013]+[\\s\\u2014\\u2013]+){0,79}[^\\s\\u2014\\u2013]+[\\s\\u2014\\u2013]*$",
+     "category": "Instruction not followed"},
 ]
 workbench = Client() if Client and os.environ.get("EVAL_WORKBENCH_API_KEY") else None
 # Cloud Run pauses the CPU once a response is sent, which would freeze the trace upload running in the background.

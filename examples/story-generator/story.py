@@ -1,6 +1,7 @@
 """Story generation logic. Traced when run through the Eval Workbench SDK, a plain function otherwise."""
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -54,11 +55,19 @@ def load_env() -> None:
 load_env()
 
 
+# A word is anything between spaces or long and short dashes, so "burning\u2014until" counts as two words.
+WORD = re.compile(r"[^\s\u2014\u2013]+")
+
+
+def count_words(text: str) -> int:
+    return len(WORD.findall(text))
+
+
 def limit_words(text: str, limit: int = MAX_WORDS) -> str:
-    words = text.split()
+    words = list(WORD.finditer(text))
     if len(words) <= limit:
         return text.strip()
-    return " ".join(words[:limit]).rstrip(",;:") + "…"
+    return text[:words[limit - 1].end()].strip().rstrip(",;:") + "…"
 
 
 @trace(name="prompt.build")
@@ -115,7 +124,7 @@ def call_openai(messages: list, api_key: str = "") -> str:
 @trace(name="response.postprocess")
 def postprocess(text: str) -> str:
     story = limit_words(text)
-    with span("word_limit", words_before=len(text.split()), words_after=len(story.split()), truncated=story != text.strip()):
+    with span("word_limit", words_before=count_words(text), words_after=count_words(story), truncated=story != text.strip()):
         pass
     return story
 
