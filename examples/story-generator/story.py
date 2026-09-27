@@ -63,11 +63,17 @@ def build_messages(prompt: str, genre: str) -> list:
     ]
 
 
+def server_key() -> str:
+    key = os.environ.get("OPENAI_API_KEY", "")
+    return "" if key.startswith("sk-your") else key
+
+
 @trace(name="llm.generate", kind="llm")
-def call_openai(messages: list) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key or api_key.startswith("sk-your"):
-        raise StoryError("OPENAI_API_KEY is not set. Add it to the .env file and restart.", 500)
+def call_openai(messages: list, api_key: str = "") -> str:
+    """api_key: the visitor's own key, entered on the page. Falls back to OPENAI_API_KEY on the server."""
+    api_key = api_key or server_key()
+    if not api_key:
+        raise StoryError("No OpenAI API key. Enter yours on the page, or set OPENAI_API_KEY in the .env file.", 400)
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     body = {"model": model, "max_tokens": 140, "messages": messages}
     base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")  # any OpenAI-compatible API
@@ -79,12 +85,14 @@ def call_openai(messages: list) -> str:
             with urllib.request.urlopen(request, timeout=30) as resp:
                 data = json.load(resp)
         except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise StoryError("OpenAI rejected this API key. Check it and try again.", 401) from None
             detail = "OpenAI rejected the request."
             try:
                 detail = json.load(e).get("error", {}).get("message", detail)
             except Exception:
                 pass
-            raise StoryError(detail) from None
+            raise StoryError(detail, 429 if e.code == 429 else 502) from None
         except urllib.error.URLError:
             raise StoryError("Could not reach OpenAI. Check your connection.") from None
         usage = data.get("usage", {})
@@ -105,5 +113,5 @@ def postprocess(text: str) -> str:
     return story
 
 
-def generate_story(prompt: str, genre: str = "any") -> str:
-    return postprocess(call_openai(build_messages(prompt, genre)))
+def generate_story(prompt: str, genre: str = "any", api_key: str = "") -> str:
+    return postprocess(call_openai(build_messages(prompt, genre), api_key))

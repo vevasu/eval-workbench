@@ -1,0 +1,5 @@
+# Files gcloud leaves out when uploading this folder to build it. Never upload .env: it holds keys.
+.env
+.env.*
+__pycache__/
+.pytest_cache/
