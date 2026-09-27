@@ -69,6 +69,7 @@ class SuiteOut(CamelModel):
     system_prompt: str = ""
     context: Any = None
     created_at: int
+    live_checks: Optional[list] = None
     cases: Optional[list[CaseOut]] = None
 
 
@@ -159,6 +160,15 @@ class ResultIn(CamelModel):
 
 class ResultsIn(CamelModel):
     results: list[ResultIn]
+
+
+class LiveChecksIn(CamelModel):
+    checks: list[dict]
+
+
+class JudgeSettingsIn(CamelModel):
+    api_key: Optional[str] = Field(default=None, max_length=400)  # omit to keep the saved key
+    model: Optional[str] = Field(default=None, max_length=80)
 
 
 class ReviewIn(CamelModel):

@@ -1,6 +1,6 @@
 # Eval Workbench
 
-Evaluate, debug and monitor the quality of AI applications: evaluation suites, production monitoring, human review, execution telemetry, failure analysis and run comparison.
+Evaluate, debug and monitor the quality of AI applications: evaluation suites, production monitoring, an AI judge, human review, execution telemetry, failure analysis and run comparison.
 
 Your application sends data to the Workbench, the way it would to LangSmith or Arize. The Workbench never calls into your application.
 
@@ -65,7 +65,7 @@ answer = client.observe("support-bot", my_app, user_input, suite_name="Support b
                         checks=[{"type": "not_contains", "values": ["I cannot help"]}])
 ```
 
-It runs your function as normal and sends the request, its spans, tokens and cost to the Workbench in the background, without slowing or breaking your app. The **Production** page then shows failure rate, latency, tokens and cost over time and per deployed version, and **Add to test suite** turns a failing request into a test case. The **Review queue** collects results the checks can't decide, plus spot checks of production, for a person to mark pass or fail; their decision counts in every pass rate.
+It runs your function as normal and sends the request, its spans, tokens and cost to the Workbench in the background, without slowing or breaking your app. The **Production** page then shows failure rate, latency, tokens and cost over time and per deployed version, and **Add to test suite** turns a failing request into a test case. On the Production page you can also set **checks on live traffic** for each application, including an **AI judge** that uses your own OpenAI key to decide things rules can't, such as "did it do what was asked". The **Review queue** collects results the checks can't decide, plus spot checks of production, for a person to mark pass or fail; their decision counts in every pass rate.
 
 ## Example applications
 
@@ -80,5 +80,5 @@ It runs your function as normal and sends the request, its spans, tokens and cos
 - `examples/` example applications that use the SDK
 - `data/sample-data.json` sample suites and run history, used to seed the backend
 - `templates/` CSV and JSON templates for importing a suite
-- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 8 are built; CI integration is next)
+- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 8b are built; CI integration is next)
 - `CLAUDE.md` project context for Claude Code

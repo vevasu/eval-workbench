@@ -18,6 +18,9 @@ class Project(SQLModel, table=True):
     id: str = Field(primary_key=True)
     name: str
     created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
+    # The AI judge: the project's own model key, encrypted (app/keystore.py), and the model it uses.
+    judge_key: Optional[str] = None
+    judge_model: str = ""
 
 
 class ApiKey(SQLModel, table=True):
@@ -42,6 +45,7 @@ class Suite(SQLModel, table=True):
     system_prompt: str = ""
     context: Any = Field(default=None, sa_column=Column(JSON))
     created_at: int = Field(default_factory=now_ms, sa_column=ms_column())
+    live_checks: Any = Field(default=None, sa_column=Column(JSON))  # run on every production request, set in the web app
 
 
 class TestCase(SQLModel, table=True):

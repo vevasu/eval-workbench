@@ -45,7 +45,7 @@ def seed(session: Session, project_id: str = DEMO_PROJECT_ID) -> None:
             project_id=project_id, id=suite_data["id"], prefix=suite_data["prefix"], name=suite_data["name"],
             description=suite_data.get("description", ""), pipeline=suite_data["pipeline"], sla_ms=suite_data["slaMs"],
             system_prompt=suite_data.get("systemPrompt", ""), context=suite_data.get("context"),
-            created_at=suite_data["createdAt"]))
+            created_at=suite_data["createdAt"], live_checks=suite_data.get("liveChecks")))
         for position, case_data in enumerate(suite_data["cases"]):
             session.add(TestCase(
                 project_id=project_id, suite_id=suite_data["id"], id=case_data["id"], position=position,

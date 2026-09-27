@@ -42,7 +42,7 @@
     <li><b>Neon</b> hosts the database where access requests and project data are stored.</li>
     <li><b>Google Fonts</b> serves the typefaces for the web app, so your browser requests them from Google.</li>
   </ul>
-  <p>Eval Workbench never calls an AI model on your behalf. Your application calls its own model provider with its own key.</p>
+  <p>Eval Workbench calls an AI model only for the AI judge, and only if you turn it on by saving your own model key. It then sends the request and answer being judged, with your criteria, to your model provider (OpenAI) using your key. We store that key encrypted, never show it again, and use it for nothing else. You can remove it at any time. Otherwise your application calls its own model provider with its own key.</p>
 
   <h2>How long we keep it</h2>
   <p>Project data is kept until you delete it or the beta ends. Access requests are kept until your project is deleted, or until you ask us to remove a request that was not approved. Request logs are kept for the hosting provider's standard period.</p>

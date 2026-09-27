@@ -49,6 +49,13 @@ def validate_checks(checks: list) -> None:
                 re.compile(c.get("pattern", ""))
             except re.error:
                 raise HTTPException(status_code=422, detail="The regex pattern is not valid.")
+        if c["type"] == "llm_judge":
+            criteria = str(c.get("criteria") or "").strip()
+            if not criteria or len(criteria) > 2000:
+                raise HTTPException(status_code=422, detail="An AI judge check needs criteria of up to 2000 characters.")
+            sample = c.get("sample", 100)
+            if not isinstance(sample, (int, float)) or not 1 <= sample <= 100:
+                raise HTTPException(status_code=422, detail="An AI judge's sample is a percentage from 1 to 100.")
 
 
 def make_prefix(name: str) -> str:

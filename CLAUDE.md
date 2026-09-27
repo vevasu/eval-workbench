@@ -20,7 +20,8 @@ Long term goal: a public, bring-your-own-key product in the same space as LangSm
 - Deployed on Google Cloud Run (`eval-workbench`, us-central1, Neon Postgres): https://eval-workbench-5lofnwh6hq-uc.a.run.app. The Docker build serves the SDK wheel at `/sdk/`; keep `SDK_VERSION` in `index.html` and the wheel name in `app/manage.py` in step with `sdk/python`. See `docs/BETA.md`.
 - Schema changes go through Alembic migrations (`backend/migrations`, applied on startup by `app/migrate.py`). Never rely on `create_all` to change an existing table. See `docs/BETA.md`.
 - Human review: `#/review` lists results waiting for a person (verdict Review), spot checks of passing production requests and past decisions; `Reviews` in the frontend and `app/routers/reviews.py` in the backend. The demo seed includes reviews by "Priya" (test runs DS-R1 to DS-R3) and "Sam" (spot checks).
-- Built so far: phases 0 to 8 of `docs/BUILD_PLAN.md`. Phase 9 (CI integration) is next.
+- AI judge and checks on live traffic: an `llm_judge` check asks a model (the project's own OpenAI key, saved encrypted by `app/keystore.py`) whether an answer meets its criteria (`app/judge.py`). Each suite can have `liveChecks`, set on the Production page, that run on every production request after the app's own checks. Test runs are judged during upload; production requests are judged in a background thread.
+- Built so far: phases 0 to 8b of `docs/BUILD_PLAN.md`. Phase 9 (CI integration) is next.
 
 ## How to work on this project
 
@@ -38,14 +39,14 @@ The script in `frontend/index.html` is split into modules, each marked by a `/* 
 |---|---|---|
 | Util | Formatting, seeded PRNG, helpers | |
 | Taxonomy | `CATEGORIES` (failure categories), `REVIEW_REASONS` | Custom taxonomies per project |
-| Evaluators | Registry of check types. Each has `label`, default `category`, `describe(check)` and `run(output, check)` | LLM-as-a-judge and custom evaluators register here |
+| Evaluators | Registry of check types. Each has `label`, default `category`, `describe(check)` and `run(output, check)`. `evaluate()` runs them and `decide()` turns results into a verdict (used again after an AI judge answers) | Custom evaluators register here |
 | Telemetry | `buildSpans()` builds the span tree for each execution | Agent and tool-call traces, tokens and cost on spans |
 | Targets | Adapters that produce an output for a test case: `simulated`, `recorded`, `live` (Claude, only inside claude.ai) | HTTP endpoint target, provider targets with the user's own key |
 | Run execution | `executeRun(suite, cfg, onProgress)` runs every case, evaluates it, records telemetry | Moves to the SDK and backend |
 | Analytics | `summarize()`, `compareRuns()`, regressions, fixes, latency regressions, `liveStats()` for production windows | Automatic regression detection, alerts |
 | Store | `load`, `save`, `reset` against localStorage, and the `Api` client | Replace with an API client (keep localStorage as a demo mode) |
 | Production data | `Prod.stats()`, `traces()`, `trace()`: `{ data }`, `{ pending }` or `{ error }`, from localStorage in demo mode or `/production` in API mode | Alerts on failure-rate changes, OpenTelemetry ingestion |
-| Human review | `Reviews.queue()`, `target()`, `save()`; `applyReview()`, `isSpotCheck()` | Review assignments, agreement between reviewers, LLM-as-a-judge suggestions |
+| Human review | `Reviews.queue()`, `target()`, `save()`; `applyReview()`, `isSpotCheck()` | Review assignments, agreement between reviewers |
 | Seed data | `SEED_SUITES` and `buildSeed()` | |
 | Charts | Hand-written SVG line chart, bar lists, pass/fail/review bar | |
 | Views | One render function per page, hash router `route()`, delegated events | |
@@ -60,7 +61,7 @@ Notes:
 
 This is the shape the backend should mirror. Field names are the ones used in `sample-data.json`.
 
-**Suite**: `id`, `prefix` (for case and run IDs, such as `RW`), `name`, `description`, `pipeline` (`chat`, `tools` or `rag`), `slaMs`, `systemPrompt`, `context` (reference data), `createdAt`, `cases[]`.
+**Suite**: `id`, `prefix` (for case and run IDs, such as `RW`), `name`, `description`, `pipeline` (`chat`, `tools` or `rag`), `slaMs`, `systemPrompt`, `context` (reference data), `createdAt`, optional `liveChecks[]` (run on every production request), `cases[]`.
 
 **Test case**: `id` (such as `RW-006`), `input`, `expected` (human-readable expected behaviour), `tag`, `checks[]`, optional `recorded` and `recordedLatencyMs` (actual output uploaded for offline scoring), optional `origin` (`<runId>/<caseId>` of the production request it was created from), optional `sim` and `hard` (simulator only; not part of the real product).
 
@@ -72,6 +73,7 @@ This is the shape the backend should mirror. Field names are the ones used in `s
 - `json_keys` with `keys[]`, optional `strict`
 - `max_length` with `max`
 - `human` with `rubric`. Always sends the case to review.
+- `llm_judge` with `criteria`, optional `sample` (percent of production requests to judge). A model decides pass or fail with a reason; until it answers the check is `pending`.
 
 **Run**: `id` (such as `RW-R5`), `suiteId`, `version`, `model`, `target` (`simulated`, `recorded`, `live`, `sdk`, or `production` for live traffic), `note` (what changed), `startedAt`, `finishedAt`, `slaMs`, `results[]`.
 
@@ -86,11 +88,12 @@ These must behave identically wherever scoring happens (frontend today, backend 
 1. Execution error: Fail, category `Execution error`.
 2. Any check fails outright: Fail. The category comes from the first failed check (its override, or the evaluator default). If the output looks like a refusal and the case doesn't expect one, the category becomes `Unwarranted refusal`, unless it's `Policy violation`.
 3. Otherwise, a partly met `contains_all`: Review, category `Partial match`.
-4. Otherwise, a `human` check: Review, category `Awaiting human review`.
-5. Otherwise, latency over the suite SLA: Fail, category `Latency SLA breach`.
-6. Otherwise: Pass.
+4. Otherwise, an AI judge that hasn't answered yet: Review, category `Awaiting AI judge`. (A judge is skipped, `skipped: true`, when rule 2 or 3 already decided; once it answers, its pass or fail counts like any other check. If it can't run, it becomes a manual check.)
+5. Otherwise, a `human` check: Review, category `Awaiting human review`.
+6. Otherwise, latency over the suite SLA: Fail, category `Latency SLA breach`.
+7. Otherwise: Pass.
 
-Production traffic follows the same rules, except that a request sent without any checks skips the "no checks: Review" rule: it is judged on errors and latency only (steps 1, 5 and 6), so live traffic doesn't flood review.
+Production traffic follows the same rules, except that a request sent without any checks skips the "no checks: Review" rule: it is judged on errors and latency only (steps 1, 6 and 7), so live traffic doesn't flood review.
 
 A person's review overrides all of the above: `verdict` and `category` become the reviewer's (Pass, or Fail with a category), and the automatic ones are kept in `review.autoVerdict` and `review.autoCategory`. Undo puts them back. Spot checks are production requests with verdict Pass whose id number is a multiple of 20 (`isSpotCheck()` / `is_spot_check()`).
 

@@ -220,6 +220,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-o
 .checks .ic.ok{background:var(--pass-soft);color:var(--pass)}
 .checks .ic.no{background:var(--fail-soft);color:var(--fail)}
 .checks .ic.part{background:var(--review-soft);color:var(--review)}
+.checks .ic.skip{background:var(--line-2);color:var(--ink-3)}
 .checks b{font-weight:600}
 
 .wf{display:flex;flex-direction:column;gap:6px;font-size:13px}
@@ -378,7 +379,7 @@ const CATEGORIES = [
   'Incorrect answer', 'Hallucination', 'Incomplete answer', 'Format violation', 'Instruction not followed',
   'Policy violation', 'Unwarranted refusal', 'Off-topic response', 'Latency SLA breach', 'Execution error'
 ];
-const REVIEW_REASONS = ['Partial match', 'Awaiting human review'];
+const REVIEW_REASONS = ['Partial match', 'Awaiting human review', 'Awaiting AI judge'];
 const REFUSAL_RE = /\b(can't|cannot|unable to|not able to|won't be able)\b/i;
 
 /* ---------------- Evaluators ----------------
@@ -430,6 +431,12 @@ const Evaluators = {
     label: 'Human review', category: null, manual: true,
     describe: c => c.rubric,
     run(out, c) { return { pass: null, manual: true, detail: c.rubric }; }
+  },
+  // A model decides later, on the server (backend/app/judge.py); until then the result waits in Review.
+  llm_judge: {
+    label: 'AI judge', category: 'Instruction not followed',
+    describe: c => c.criteria,
+    run(out, c) { return { pass: null, pending: true, detail: 'Waiting for the AI judge' }; }
   }
 };
 
@@ -438,20 +445,31 @@ function expectsRefusal(tc) { return (tc.checks || []).some(c => (c.values || []
 // live: production traffic. A request sent without checks is judged on errors and latency only, not sent to review.
 function evaluate(tc, output, latencyMs, slaMs, error, live = false) {
   if (error) return { verdict: 'Fail', category: 'Execution error', reason: error, checks: [] };
+  const refusalExpected = expectsRefusal(tc);
   const checks = (tc.checks || []).map(c => {
     const ev = Evaluators[c.type]; if (!ev) return { type: c.type, label: c.type, pass: false, detail: 'Unknown check type' };
-    return { type: c.type, label: ev.label, spec: ev.describe(c), category: c.category || ev.category, ...ev.run(output, c) };
+    const r = { type: c.type, label: ev.label, spec: ev.describe(c), category: c.category || ev.category, ...ev.run(output, c) };
+    if (r.pending) r.refusalExpected = refusalExpected; // kept for deciding again once the judge has answered
+    return r;
   });
+  return decide(checks, output, latencyMs, slaMs, live, refusalExpected);
+}
+// The verdict for a list of check results (scoring rules in CLAUDE.md). Same as decide() in the backend.
+function decide(checks, output, latencyMs, slaMs, live = false, refusalExpected = false) {
   const hard = checks.filter(r => !r.manual && r.pass === false && !r.partial);
   const partial = checks.filter(r => r.partial);
+  const pending = checks.find(r => r.pending);
   const manual = checks.find(r => r.manual);
+  const skipJudges = () => checks.forEach(r => { if (r.pending) { delete r.pending; r.skipped = true; r.detail = 'Not judged: the answer was already decided by the other checks'; } });
   if (!checks.length && !live) return { verdict: 'Review', category: 'Awaiting human review', reason: 'No automated checks are defined for this case.', checks };
   if (hard.length) {
+    skipJudges();
     let cat = hard[0].category || 'Incorrect answer';
-    if (REFUSAL_RE.test(output) && !expectsRefusal(tc) && cat !== 'Policy violation') cat = 'Unwarranted refusal';
-    return { verdict: 'Fail', category: cat, reason: `${hard[0].label} failed: ${hard[0].detail}.`, checks };
+    if (REFUSAL_RE.test(output) && !refusalExpected && cat !== 'Policy violation') cat = 'Unwarranted refusal';
+    return { verdict: 'Fail', category: cat, reason: `${hard[0].label} failed: ${hard[0].detail.replace(/\.+$/, '')}.`, checks };
   }
-  if (partial.length) return { verdict: 'Review', category: 'Partial match', reason: `${partial[0].label} only partly met: ${partial[0].detail}.`, checks };
+  if (partial.length) { skipJudges(); return { verdict: 'Review', category: 'Partial match', reason: `${partial[0].label} only partly met: ${partial[0].detail}.`, checks }; }
+  if (pending) return { verdict: 'Review', category: 'Awaiting AI judge', reason: `Waiting for the AI judge to check: ${pending.spec}`, checks };
   if (manual) return { verdict: 'Review', category: 'Awaiting human review', reason: `Needs a reviewer to judge: ${manual.detail}`, checks };
   if (slaMs && latencyMs > slaMs) return { verdict: 'Fail', category: 'Latency SLA breach', reason: `Answer was correct but took ${fmtMs(latencyMs)} against a ${fmtMs(slaMs)} SLA.`, checks };
   if (!checks.length) return { verdict: 'Pass', category: null, reason: 'No errors and within the latency SLA. No content checks were sent.', checks };
@@ -869,7 +887,7 @@ print(result.summary["passRate"], result.url)    # open the link to see the resu
     ? `<a class="btn primary" href="#/traces">Open my traces</a><a class="btn" href="#/suites">My suites</a>`
     : `<button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I have a key</button>`;
   return head('Get started', 'Send your app\'s results to the Workbench and see whether it is getting better, where it fails and why. Five steps, about ten minutes.', cta) + `<div class="steps">
-    <section class="panel"><h2>What you get</h2><p class="hint" style="margin:0">Your app sends its inputs, outputs, timings and steps here through a small Python package. The Workbench scores each result with plain checks you choose, such as "must include", "must not include" or "valid JSON". It never calls a model itself, so it uses your own model account only through your own code. You then see pass rates over time, what changed between versions, which failures repeat, and a trace of every request.</p></section>
+    <section class="panel"><h2>What you get</h2><p class="hint" style="margin:0">Your app sends its inputs, outputs, timings and steps here through a small Python package. The Workbench scores each result with checks you choose: plain rules such as "must include", "must not include" or "valid JSON", and an AI judge for what rules can't check, such as "did it do what was asked". The AI judge uses your own model key, which you save in the Workbench; everything else runs without a model. You then see pass rates over time, what changed between versions, which failures repeat, and a trace of every request.</p></section>
     <section class="panel"><h2><span class="num">1</span>Get an API key</h2><p class="hint">${connected ? 'You are connected, so you already have a key. Keep it private.' : 'The beta is invite-only. Request access and we will email you a key for your own private project.'}</p><div class="cta-row">${connected ? '' : '<button class="btn primary" data-action="request-access">Request beta access</button><button class="btn" data-action="api-settings">I already have a key</button>'}</div></section>
     <section class="panel"><h2><span class="num">2</span>Install the package</h2><p class="hint">Python 3.9 or newer. It has no other dependencies.</p>${codeBlock('c-install', install)}</section>
     <section class="panel"><h2><span class="num">3</span>Set two environment variables</h2>${codeBlock('c-env', env)}</section>
@@ -887,7 +905,7 @@ function demoBanner() {
   if (Store.mode !== 'demo') return '';
   try { if (localStorage.getItem(BANNER_LS)) return ''; } catch (e) {}
   return `<section class="banner" aria-label="About this demo"><h2>You're looking at sample data</h2>
-    <p>Eval Workbench shows whether your AI app is getting better, where it fails and why. This demo is a story-generation app tested across five versions. The Workbench never calls a model itself: your app sends it results and traces through a small SDK, and it scores and tracks them.</p>
+    <p>Eval Workbench shows whether your AI app is getting better, where it fails and why. This demo is a story-generation app tested across five versions. Your app sends the Workbench its results and traces through a small SDK, and the Workbench scores and tracks them, with plain rules and, if you add your own model key, an AI judge.</p>
     <div class="actions"><button class="btn primary" data-action="request-access">Request beta access</button><a class="btn" href="#/start">How to integrate</a><button class="btn" data-action="api-settings">I have a key</button><button class="btn" data-action="dismiss-banner">Dismiss</button></div></section>`;
 }
 function modalRequestAccess() {
@@ -1048,6 +1066,12 @@ const LIVE_PROMPTS = [
   { prompt: 'A little owl who is afraid of the dark', genre: 'bedtime', good: `Pip the owl was the only owl in Birchwood who was afraid of the dark. Each evening his mother hung a firefly lantern beside him. One night the lantern flickered out, and Pip held his breath. Then he noticed the stars, hundreds of them, glowing softly above the trees. He counted them one by one, and somewhere around forty-seven his eyes closed. Goodnight, little Pip.`,
     scary: `Pip the owl was afraid of the dark, and he was right to be. One night something with long claws and glowing red eyes crept up the tree, scraping the bark. Pip froze as the scary shape reached for his nest. Then the branch snapped, and in the morning his mother found only feathers.` }
 ];
+// Set on the demo suite in the web app (Checks on live traffic): an AI judge on a quarter of the requests.
+const LIVE_JUDGE = { type: 'llm_judge', criteria: 'Does what the person asked: a story on their idea, in the genre they chose. If they ask for no story, it does not write one.', sample: 25 };
+const LIVE_JUDGE_PASS = ['Writes a story on the idea, in the genre asked for.', 'On topic and in the requested genre.', 'Does what was asked: a short story on the idea.'];
+// People who typed an instruction instead of a story idea. The app writes a story anyway; only the AI judge notices.
+const NO_STORY = { prompt: 'Dont suggest any story', genre: 'fantasy', noStory: true,
+  good: 'In a hidden kingdom, a young sorceress named Lyra discovered a crystal that granted wishes. Eager to help her ailing village, she wished for prosperity. Instantly, riches flooded in, but with it, greed and betrayal arose among her people. Realizing her error, Lyra made a final wish to restore balance, erasing all wishes made. The village returned to humble life, but kindness bloomed anew, forging bonds stronger than gold. Lyra smiled, knowing true wealth lay in unity.' };
 const LIVE_SEED = {
   suiteId: 'demo-story', from: '2026-09-06T00:00:00+05:30', to: '2026-09-26T22:00:00+05:30',
   outage: ['2026-09-09T19:05:00+05:30', '2026-09-09T20:05:00+05:30'],
@@ -1082,6 +1106,11 @@ function buildLiveRuns(suite) {
       }
     }
   }
+  const extra = prng(hash('no-story:' + suite.id)); // a separate stream, so the rest of the traffic stays the same
+  for (let k = 0; k < 12; k++) {
+    const ts = t0 + 7 * DAY_MS + Math.floor(extra() * (t1 - t0 - 7 * DAY_MS)); const user = users[Math.floor(extra() * users.length)];
+    requests.push({ ts, user, sessionId: 'sess_' + hash(`${user}:${ts}`).toString(36), client: 'web', p: NO_STORY });
+  }
   requests.sort((a, b) => a.ts - b.ts);
   const results = requests.map((q, i) => {
     const rand = prng(hash(`live:${q.sessionId}:${q.ts}`)); // each request's outcome is its own draw
@@ -1107,8 +1136,14 @@ function buildLiveRuns(suite) {
       ...(error ? [] : [{ name: 'response.postprocess', kind: 'other', start: pb + llm, dur: post, depth: 1, attrs: {} },
         { name: 'word_limit', kind: 'other', start: pb + llm, dur: 0, depth: 2, attrs: { words_before: wordsIn, words_after: wordsOut, truncated } }])
     ];
-    const checks = q.p.genre === 'bedtime' ? [...LIVE_STORY_CHECKS, BEDTIME_CHECK] : LIVE_STORY_CHECKS;
-    const ev = evaluate({ checks }, actual, total, suite.slaMs, error, true);
+    const judged = prng(hash(`judge:${q.sessionId}:${q.ts}`))() * 100 < LIVE_JUDGE.sample;
+    const checks = [...LIVE_STORY_CHECKS, ...(q.p.genre === 'bedtime' ? [BEDTIME_CHECK] : []), ...(judged ? [LIVE_JUDGE] : [])];
+    let ev = evaluate({ checks }, actual, total, suite.slaMs, error, true);
+    if (ev.category === 'Awaiting AI judge') { // what the judge (backend/app/judge.py) records once the model answers
+      const j = ev.checks.find(c => c.pending); const refusal = j.refusalExpected; delete j.pending; delete j.refusalExpected;
+      Object.assign(j, q.p.noStory ? { pass: false, detail: 'The person asked not to get a story, and got one.' } : { pass: true, detail: LIVE_JUDGE_PASS[i % LIVE_JUDGE_PASS.length] }, { judgedBy: 'gpt-4o-mini' });
+      ev = decide(ev.checks, actual, total, suite.slaMs, true, refusal);
+    }
     return { caseId: 'LIVE-' + String(i + 1).padStart(5, '0'), input, expected: '', actual, verdict: ev.verdict, category: ev.category, reason: ev.reason, checks: ev.checks,
       latencyMs: total, timestamp: q.ts, model: v.model, version: v.version, spans, userId: q.user, sessionId: q.sessionId, tags: [q.p.genre], metadata: { client: q.client }, ...spanTotals(spans) };
   });
@@ -1140,7 +1175,7 @@ function applySeedReviews(runs) {
 async function buildSeed() {
   const suites = SEED_SUITES.map(s => ({
     id: s.id, prefix: s.prefix, name: s.name, description: s.description, pipeline: s.pipeline, slaMs: s.slaMs, baseMs: s.baseMs,
-    systemPrompt: s.systemPrompt, context: s.context, createdAt: new Date(s.runs[0].date).getTime() - 86400000 * 3,
+    systemPrompt: s.systemPrompt, context: s.context, createdAt: new Date(s.runs[0].date).getTime() - 86400000 * 3, ...(s.id === LIVE_SEED.suiteId ? { liveChecks: [LIVE_JUDGE] } : {}),
     cases: s.cases.map(c => ({ ...c }))
   }));
   const runs = [];
@@ -1568,7 +1603,7 @@ def handle_request(user_input, user_id, conversation_id):
 }
 function pageProduction(q) {
   const win = liveWindow(q);
-  const sub = 'Live requests from your application, scored as they arrive by the checks it sends.';
+  const sub = 'Live requests from your application, scored as they arrive by the checks it sends and the checks set here.';
   const st = Prod.stats({ suite: q.suite, version: q.version, from: win.from, to: win.to, bucket: win.bucket });
   if (st.error) return head('Production', sub) + errorPanel(st.error);
   if (!st.data) return head('Production', sub) + loadingPanel('Loading production traffic…');
@@ -1639,8 +1674,60 @@ function pageProduction(q) {
     ? `<div class="tbl-wrap">${liveTable(recent.data.traces, { compact: true })}</div>` : '<p class="muted" style="margin:0">No failed requests in this window.</p>';
   const recentPanel = `<div class="panel"><div class="panel-head"><div><h2>Latest failures</h2><p class="hint">Open one to see its steps, and add it to a test suite so it is checked on every run.</p></div>${sm.Fail ? `<a class="btn" href="${liveTracesHref({ ...inWin, v: 'Fail' })}">See all ${sm.Fail}</a>` : ''}</div>${recentBody}</div>`;
 
-  return head('Production', sub, actions) + filters + hero + kpis + `<div class="grid2">${trendPanel}${catPanel}</div>` + `<div style="margin-top:18px">${verPanel}</div>` + recentPanel;
+  return head('Production', sub, actions) + filters + hero + kpis + `<div class="grid2">${trendPanel}${catPanel}</div>` + liveChecksPanel(q, d) + `<div style="margin-top:18px">${verPanel}</div>` + recentPanel;
 }
+// The checks the Workbench runs on every production request of an application, and the AI judge's model key.
+function liveChecksPanel(q, d) {
+  const appId = q.suite || (d.suites.length === 1 ? d.suites[0].suiteId : null); const suite = appId && getSuite(appId);
+  if (!suite) return `<div class="panel" style="margin-top:18px"><h2>Checks on live traffic</h2><p class="hint" style="margin:0">Choose an application above to see and set the checks that run on each of its requests.</p></div>`;
+  const checks = suite.liveChecks || [];
+  const list = checks.length ? `<ul class="checks">${checks.map(c => { const ev = Evaluators[c.type] || { label: c.type, describe: () => '' };
+    return `<li><span class="ic ok">✓</span><div><b>${esc(ev.label)}</b> <span class="muted">${esc(ev.describe(c))}</span>${c.type === 'llm_judge' && c.sample && c.sample < 100 ? `<div class="muted" style="font-size:12.5px">On ${c.sample}% of requests</div>` : ''}</div></li>`; }).join('')}</ul>`
+    : '<p class="muted" style="margin:0">None yet. Only the checks your application sends run.</p>';
+  const usesJudge = checks.some(c => c.type === 'llm_judge');
+  let judge = '';
+  if (Store.mode !== 'api') judge = usesJudge ? '<p class="note">In demo mode the AI judge doesn\'t call a model. The judged results here were made with the demo data.</p>' : '';
+  else {
+    const js = Prod.load('judge-settings', () => Api.get('/settings/judge'));
+    judge = !js.data ? '' : js.data.configured
+      ? `<p class="note">AI judge model: <b>${esc(js.data.model)}</b> with the key ${esc(js.data.keyHint)}. <button class="linkish" data-action="judge-key">Change</button></p>`
+      : `<p class="note" style="color:var(--review)">${js.data.unreadable ? 'The saved model key can no longer be read (the server\'s secret changed).' : 'No model key is saved for the AI judge.'} ${usesJudge ? 'Until there is one, judged requests go to the review queue.' : ''} <button class="linkish" data-action="judge-key">Add a key</button></p>`;
+  }
+  return `<div class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>Checks on live traffic</h2><p class="hint">${esc(suite.name)}. These run on every new request, after the checks your application sends. Changing them doesn't rescore requests already recorded.</p></div><button class="btn" data-action="live-checks" data-suite="${esc(suite.id)}">Edit checks</button></div>${list}${judge}</div>`;
+}
+function modalLiveChecks(suiteId) {
+  const suite = getSuite(suiteId);
+  openModal(`<h2>Checks on live traffic</h2><p class="hint">${esc(suite.name)}. Every new production request is checked against these, after the checks your application sends. Use the AI judge for what rules can't check, such as "did it do what was asked".</p>
+    <div class="form-grid">${checksFieldsHtml(suite.liveChecks, { live: true })}</div><p class="err" id="c-err" hidden></p>
+    <div class="modal-foot"><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="save-live-checks" data-suite="${esc(suite.id)}">Save checks</button></div>`);
+}
+function saveLiveChecks(suiteId, btn) {
+  const suite = getSuite(suiteId); const checks = readChecksForm(suite.liveChecks);
+  const re = checks.find(c => c.type === 'regex'); if (re) { try { new RegExp(re.pattern); } catch (e) { const el = $('#c-err'); el.hidden = false; el.textContent = 'The regex pattern is not valid.'; return; } }
+  if (Store.mode === 'api') return apiWrite(async () => { await Api.request('PUT', `/suites/${enc(suiteId)}/live-checks`, { checks }); closeModal(); await Api.refresh(); toast('Checks saved. They apply to new requests'); }, '#c-err', btn);
+  suite.liveChecks = checks.length ? checks : null; Store.save(); closeModal(); toast('Checks saved. They apply to new requests'); route();
+}
+function modalJudgeKey() {
+  const js = (Prod.cache.get('judge-settings') || {}).data || {};
+  openModal(`<h2>AI judge model</h2><p class="hint">The AI judge asks this model whether each answer meets your criteria, using your own key with your model provider. The key is saved encrypted and is never shown again.</p>
+    <div class="form-grid"><label class="field full"><span>OpenAI API key</span><input type="password" id="jk-key" autocomplete="off" placeholder="${js.configured ? 'Saved: ' + esc(js.keyHint) + '. Enter a new key to replace it' : 'sk-…'}"></label>
+    <label class="field full"><span>Model</span><input type="text" id="jk-model" value="${esc(js.model || 'gpt-4o-mini')}"><small>Any OpenAI chat model. Smaller models cost less per judgment.</small></label></div>
+    <p class="note" id="jk-msg" hidden></p><p class="err" id="jk-err" hidden></p>
+    <div class="modal-foot">${js.configured ? '<button class="btn danger" data-action="remove-judge-key" style="margin-right:auto">Remove key</button>' : ''}<button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="save-judge-key">Save and test</button></div>`);
+}
+function saveJudgeKey(btn) {
+  const key = $('#jk-key').value.trim(), model = $('#jk-model').value.trim();
+  const js = (Prod.cache.get('judge-settings') || {}).data || {};
+  if (!key && !js.configured) { const e = $('#jk-err'); e.hidden = false; e.textContent = 'Enter your OpenAI API key.'; return; }
+  apiWrite(async () => {
+    await Api.request('PUT', '/settings/judge', { model, ...(key ? { apiKey: key } : {}) });
+    const t = await Api.request('POST', '/settings/judge/test');
+    Prod.clear(); btn.disabled = false; $('#jk-key').value = '';
+    if (t.ok) { closeModal(); toast(t.message); route(); }
+    else { const e = $('#jk-err'); e.hidden = false; e.textContent = t.message; }
+  }, '#jk-err', btn);
+}
+
 function liveTable(rows, o = {}) {
   return `<table class="tbl"><thead><tr><th>Time</th>${o.compact ? '' : '<th>Application</th>'}<th>Input</th><th>Result</th><th>Failure reason</th><th>Version</th>${o.compact ? '' : '<th>User</th>'}<th class="num">Latency</th>${o.compact ? '' : '<th class="num">Tokens</th>'}</tr></thead><tbody>
     ${rows.map(t => { const h = traceHref(t.runId, t.caseId); const s = getSuite(t.suiteId);
@@ -1702,7 +1789,8 @@ function waterfallHtml(spans) {
   return spans.length ? `<div class="wf">${spans.map(sp => { const attrs = Object.entries(sp.attrs || {}).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`).join('  '); return `<div class="wf-row"><span class="wf-name" style="padding-left:${sp.depth * 14}px" title="${esc(sp.name)}">${esc(sp.name)}</span><div class="wf-track"><div class="wf-bar k-${esc(sp.kind)}" style="left:${sp.start / total * 100}%;width:${sp.dur / total * 100}%"></div></div><span class="wf-dur">${fmtMs(sp.dur)}</span>${attrs ? `<div class="wf-attrs">${esc(attrs)}</div>` : ''}</div>`; }).join('')}</div>` : '<p class="muted">No spans were recorded for this execution.</p>';
 }
 function checksHtml(x, slaMs) {
-  return x.checks.length || (x.verdict === 'Fail' && x.category === 'Latency SLA breach') ? `<ul class="checks">${x.checks.map(c => `<li><span class="ic ${c.manual ? 'part' : c.pass ? 'ok' : c.partial ? 'part' : 'no'}">${c.manual ? '?' : c.pass ? '✓' : c.partial ? '~' : '✕'}</span><div><b>${esc(c.label)}</b> <span class="muted">${esc(c.spec || '')}</span><div class="ink2">${esc(c.detail)}</div></div></li>`).join('')}
+  const icon = c => c.pending ? ['part', '…'] : c.skipped ? ['skip', '–'] : c.manual ? ['part', '?'] : c.pass ? ['ok', '✓'] : c.partial ? ['part', '~'] : ['no', '✕'];
+  return x.checks.length || (x.verdict === 'Fail' && x.category === 'Latency SLA breach') ? `<ul class="checks">${x.checks.map(c => `<li><span class="ic ${icon(c)[0]}">${icon(c)[1]}</span><div><b>${esc(c.label)}</b> <span class="muted">${esc(c.spec || '')}</span><div class="ink2">${esc(c.detail)}</div>${c.judgedBy ? `<div class="muted" style="font-size:12px">Judged by ${esc(c.judgedBy)}</div>` : ''}</div></li>`).join('')}
     ${x.verdict === 'Fail' && x.category === 'Latency SLA breach' ? `<li><span class="ic no">✕</span><div><b>Latency SLA</b> <span class="muted">${fmtMs(slaMs)}</span><div class="ink2">Took ${fmtMs(x.latencyMs)}</div></div></li>` : ''}</ul>` : `<p class="muted">${esc(x.reason)}</p>`;
 }
 const promotedCase = origin => { for (const s of Store.state.suites) { const c = s.cases.find(tc => tc.origin === origin); if (c) return { s, c }; } return null; };
@@ -1733,7 +1821,7 @@ function pageLiveTrace(runId, caseId) {
     <div class="panel"><h2>Input and output</h2><p class="hint">What your application received and what it returned.</p>
       <div class="io" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="box"><h3>Input</h3><pre>${esc(x.input)}</pre></div><div class="box actual ${x.verdict.toLowerCase()}"><h3>Actual output</h3><pre>${esc(x.actual || '(empty)')}</pre></div></div></div>
     <div class="grid2"><div class="panel"><h2>Execution trace</h2><p class="hint">Where the ${fmtMs(x.latencyMs)} went.</p>${waterfallHtml(x.spans || [])}</div>
-      <div class="panel"><h2>Checks</h2><p class="hint">The checks your application sent with this request.</p>${checksHtml(x, r.slaMs || s.slaMs)}
+      <div class="panel"><h2>Checks</h2><p class="hint">The checks your application sent with this request, and those set in the Workbench.</p>${checksHtml(x, r.slaMs || s.slaMs)}
       ${session.length > 1 ? `<h3 style="font-size:13px;margin:18px 0 8px">This session (${session.length} requests)</h3><div style="display:flex;gap:6px;flex-wrap:wrap">${session.map(y => `<a href="${traceHref(y.runId, y.caseId)}" class="tag" style="${y.caseId === caseId ? 'border-color:var(--ink);color:var(--ink);font-weight:600' : ''}" title="${esc(fmtDateTime(y.timestamp) + ' · ' + y.verdict)}"><span class="chip ${y.verdict.toLowerCase()}" style="padding:0 4px;background:none">${esc(fmtTime(y.timestamp))}</span></a>`).join(' ')}</div>` : ''}</div></div>`;
 }
 function pageTrace(runId, caseId) {
@@ -1881,32 +1969,46 @@ function createSuite(o) {
   const s = { id, prefix, name: o.name, description: o.description || '', pipeline: o.pipeline || 'chat', slaMs: o.slaMs || 3000, baseMs: 1200, systemPrompt: o.systemPrompt || '', context: o.context || '', createdAt: Date.now(), cases: o.cases || [] };
   Store.state.suites.push(s); Store.save(); return s;
 }
-function caseFormHtml(tc) {
-  const get = (t, f) => { const c = (tc && tc.checks || []).find(c => c.type === t); return c ? f(c) : ''; };
-  return `<div class="form-grid">
-    <label class="field full"><span>Input or prompt</span><textarea id="c-input">${esc(tc ? tc.input : '')}</textarea></label>
-    <label class="field full"><span>Expected output or behaviour</span><textarea id="c-exp" style="min-height:54px">${esc(tc ? tc.expected : '')}</textarea></label>
-    <label class="field"><span>Tag</span><input type="text" id="c-tag" value="${esc(tc && tc.tag || '')}" placeholder="For example: Refunds"></label>
-    <label class="field"><span>Max length (characters)</span><input type="number" id="c-max" value="${esc(get('max_length', c => c.max))}"></label>
-    <label class="field"><span>Must include all</span><textarea id="c-all" placeholder="One per line">${esc(get('contains_all', c => c.values.join('\n')))}</textarea></label>
+function checksFieldsHtml(checks, o = {}) {
+  const get = (t, f) => { const c = (checks || []).find(c => c.type === t); return c ? f(c) : ''; };
+  return `<label class="field"><span>Must include all</span><textarea id="c-all" placeholder="One per line">${esc(get('contains_all', c => c.values.join('\n')))}</textarea></label>
     <label class="field"><span>Must include one of</span><textarea id="c-any" placeholder="One per line">${esc(get('contains_any', c => c.values.join('\n')))}</textarea></label>
     <label class="field"><span>Must not include</span><textarea id="c-not" placeholder="One per line">${esc(get('not_contains', c => c.values.join('\n')))}</textarea></label>
     <label class="field"><span>Output must match pattern (regex)</span><input type="text" id="c-re" value="${esc(get('regex', c => c.pattern))}"><small>Case-insensitive.</small></label>
     <label class="field"><span>JSON keys required</span><input type="text" id="c-json" value="${esc(get('json_keys', c => c.keys.join(', ')))}" placeholder="Comma-separated"></label>
-    <label class="field"><span>Human review rubric</span><input type="text" id="c-human" value="${esc(get('human', c => c.rubric))}" placeholder="Leave empty if checks are enough"></label>
-  </div><p class="note">Checks run in order. Any failed check fails the case; a partly met "include all" check or a rubric sends it to review.</p><p class="err" id="c-err" hidden></p>`;
+    <label class="field"><span>Max length (characters)</span><input type="number" id="c-max" value="${esc(get('max_length', c => c.max))}"></label>
+    ${o.live ? '' : `<label class="field full"><span>Human review rubric</span><input type="text" id="c-human" value="${esc(get('human', c => c.rubric))}" placeholder="Leave empty if checks are enough"></label>`}
+    <label class="field full"><span>AI judge: what a good answer does</span><textarea id="c-judge" placeholder="For example: Does what the person asked, in the genre they chose. If they ask for no story, it doesn't write one.">${esc(get('llm_judge', c => c.criteria))}</textarea><small>A model reads each answer and decides pass or fail against this, with the model key saved for the AI judge.${Store.mode === 'api' ? '' : ' In demo mode it has no model, so these results wait in review.'}</small></label>
+    ${o.live ? `<label class="field"><span>AI judge sample (% of requests)</span><input type="number" id="c-sample" min="1" max="100" value="${esc(get('llm_judge', c => c.sample ?? 100) || 100)}"><small>Judge fewer requests to spend less on the model.</small></label>` : ''}`;
 }
-function readCaseForm() {
+// Reads the check fields. `existing` are the checks being edited: settings the form doesn't show (category, flags) are kept.
+function readChecksForm(existing = []) {
   const lines = id => $(id).value.split('\n').map(s => s.trim()).filter(Boolean);
+  const keep = t => { const c = (existing || []).find(x => x.type === t); if (!c) return {}; const { values, keys, pattern, max, rubric, criteria, sample, ...rest } = c; return rest; };
   const checks = [];
-  if (lines('#c-not').length) checks.push({ type: 'not_contains', values: lines('#c-not') });
-  if ($('#c-json').value.trim()) checks.push({ type: 'json_keys', keys: $('#c-json').value.split(',').map(s => s.trim()).filter(Boolean) });
-  if ($('#c-re').value.trim()) checks.push({ type: 'regex', pattern: $('#c-re').value.trim(), flags: 'i' });
-  if (lines('#c-any').length) checks.push({ type: 'contains_any', values: lines('#c-any') });
-  if (lines('#c-all').length) checks.push({ type: 'contains_all', values: lines('#c-all') });
-  if (+$('#c-max').value > 0) checks.push({ type: 'max_length', max: +$('#c-max').value });
-  if ($('#c-human').value.trim()) checks.push({ type: 'human', rubric: $('#c-human').value.trim() });
-  return { input: $('#c-input').value.trim(), expected: $('#c-exp').value.trim(), tag: $('#c-tag').value.trim(), checks };
+  if (lines('#c-not').length) checks.push({ ...keep('not_contains'), type: 'not_contains', values: lines('#c-not') });
+  if ($('#c-json').value.trim()) checks.push({ ...keep('json_keys'), type: 'json_keys', keys: $('#c-json').value.split(',').map(s => s.trim()).filter(Boolean) });
+  if ($('#c-re').value.trim()) checks.push({ flags: 'i', ...keep('regex'), type: 'regex', pattern: $('#c-re').value.trim() });
+  if (lines('#c-any').length) checks.push({ ...keep('contains_any'), type: 'contains_any', values: lines('#c-any') });
+  if (lines('#c-all').length) checks.push({ ...keep('contains_all'), type: 'contains_all', values: lines('#c-all') });
+  if (+$('#c-max').value > 0) checks.push({ ...keep('max_length'), type: 'max_length', max: +$('#c-max').value });
+  if ($('#c-human') && $('#c-human').value.trim()) checks.push({ ...keep('human'), type: 'human', rubric: $('#c-human').value.trim() });
+  if ($('#c-judge').value.trim()) {
+    const sample = $('#c-sample') ? Math.min(100, Math.max(1, Math.round(+$('#c-sample').value || 100))) : null;
+    checks.push({ ...keep('llm_judge'), type: 'llm_judge', criteria: $('#c-judge').value.trim(), ...(sample && sample < 100 ? { sample } : {}) });
+  }
+  return checks;
+}
+function caseFormHtml(tc) {
+  return `<div class="form-grid">
+    <label class="field full"><span>Input or prompt</span><textarea id="c-input">${esc(tc ? tc.input : '')}</textarea></label>
+    <label class="field full"><span>Expected output or behaviour</span><textarea id="c-exp" style="min-height:54px">${esc(tc ? tc.expected : '')}</textarea></label>
+    <label class="field full"><span>Tag</span><input type="text" id="c-tag" value="${esc(tc && tc.tag || '')}" placeholder="For example: Refunds"></label>
+    ${checksFieldsHtml(tc && tc.checks)}
+  </div><p class="note">Checks run in order. Any failed check fails the case; a partly met "include all" check, a rubric or an AI judge that couldn't run sends it to review.</p><p class="err" id="c-err" hidden></p>`;
+}
+function readCaseForm(existing) {
+  return { input: $('#c-input').value.trim(), expected: $('#c-exp').value.trim(), tag: $('#c-tag').value.trim(), checks: readChecksForm(existing) };
 }
 function modalCase(suiteId, caseId) {
   const s = getSuite(suiteId); const tc = caseId ? s.cases.find(c => c.id === caseId) : null;
@@ -1914,7 +2016,7 @@ function modalCase(suiteId, caseId) {
     <div class="modal-foot"><button class="btn" data-action="close-modal">Cancel</button><button class="btn primary" data-action="save-case" data-suite="${esc(s.id)}" data-id="${esc(tc ? tc.id : '')}">${tc ? 'Save changes' : 'Add test case'}</button></div>`);
 }
 function saveCase(suiteId, caseId) {
-  const s = getSuite(suiteId); const d = readCaseForm();
+  const s = getSuite(suiteId); const d = readCaseForm(caseId ? (s.cases.find(c => c.id === caseId) || {}).checks : []);
   if (!d.input) { const e = $('#c-err'); e.hidden = false; e.textContent = 'Add an input for this test case.'; return; }
   if (d.checks.some(c => c.type === 'regex')) { try { new RegExp(d.checks.find(c => c.type === 'regex').pattern); } catch (e) { const el = $('#c-err'); el.hidden = false; el.textContent = 'The regex pattern is not valid.'; return; } }
   if (Store.mode === 'api') return apiWrite(async () => {
@@ -2107,6 +2209,11 @@ document.addEventListener('click', e => {
       case 'promote-trace': modalPromote(a.dataset.run, a.dataset.case); break;
       case 'save-promote': savePromote(a.dataset.run, a.dataset.case, a); break;
       case 'save-review': saveReview(a); break;
+      case 'live-checks': modalLiveChecks(a.dataset.suite); break;
+      case 'save-live-checks': saveLiveChecks(a.dataset.suite, a); break;
+      case 'judge-key': modalJudgeKey(); break;
+      case 'save-judge-key': saveJudgeKey(a); break;
+      case 'remove-judge-key': if (confirm('Remove the saved model key? The AI judge stops until you add another.')) apiWrite(async () => { await Api.request('DELETE', '/settings/judge'); Prod.clear(); closeModal(); toast('Model key removed'); route(); }); break;
       case 'undo-review': undoReviewAction(a); break;
       case 'new-suite': modalSuite(); break;
       case 'save-suite': saveSuite(); break;

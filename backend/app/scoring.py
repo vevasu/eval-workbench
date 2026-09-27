@@ -82,6 +82,11 @@ def _human(out, c):
     return {"pass": None, "manual": True, "detail": c.get("rubric", "")}
 
 
+def _llm_judge(out, c):
+    """A model decides later (app/judge.py); until then the check is pending and the result waits in Review."""
+    return {"pass": None, "pending": True, "detail": "Waiting for the AI judge"}
+
+
 # Register new evaluator types here (LLM-as-a-judge, custom checks).
 EVALUATORS = {
     "contains_all": {"label": "Must include all", "category": "Incomplete answer", "run": _contains_all,
@@ -97,6 +102,8 @@ EVALUATORS = {
     "max_length": {"label": "Max length", "category": "Instruction not followed", "run": _max_length,
                    "describe": lambda c: f"{c['max']} characters"},
     "human": {"label": "Human review", "category": None, "run": _human, "describe": lambda c: c.get("rubric", "")},
+    "llm_judge": {"label": "AI judge", "category": "Instruction not followed", "run": _llm_judge,
+                  "describe": lambda c: c.get("criteria", "")},
 }
 
 
@@ -111,6 +118,7 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
     if error:
         return {"verdict": "Fail", "category": "Execution error", "reason": error, "checks": []}
     checks = []
+    refusal_expected = expects_refusal(checks_def)
     for c in checks_def or []:
         ev = EVALUATORS.get(c.get("type"))
         if ev is None:
@@ -118,20 +126,41 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
             continue
         checks.append({"type": c["type"], "label": ev["label"], "spec": ev["describe"](c),
                        "category": c.get("category") or ev["category"], **ev["run"](output, c)})
+        if checks[-1].get("pending"):
+            checks[-1]["refusalExpected"] = refusal_expected  # kept for deciding again once the judge has answered
+    return decide(checks, output, latency_ms, sla_ms, live, refusal_expected)
+
+
+def decide(checks: list, output: str, latency_ms: float, sla_ms: Optional[float], live: bool = False,
+           refusal_expected: bool = False) -> dict:
+    """The verdict for a list of check results (the scoring rules in CLAUDE.md). Used again after an AI judge answers."""
     hard = [r for r in checks if not r.get("manual") and r["pass"] is False and not r.get("partial")]
     partial = [r for r in checks if r.get("partial")]
+    pending = next((r for r in checks if r.get("pending")), None)
     manual = next((r for r in checks if r.get("manual")), None)
+
+    def skip_judges():  # already decided without them, so the model is not asked
+        for r in checks:
+            if r.pop("pending", None):
+                r["skipped"] = True
+                r["detail"] = "Not judged: the answer was already decided by the other checks"
+
     if not checks and not live:
         return {"verdict": "Review", "category": "Awaiting human review",
                 "reason": "No automated checks are defined for this case.", "checks": checks}
     if hard:
+        skip_judges()
         cat = hard[0].get("category") or "Incorrect answer"
-        if REFUSAL_RE.search(str(output)) and not expects_refusal(checks_def) and cat != "Policy violation":
+        if REFUSAL_RE.search(str(output)) and not refusal_expected and cat != "Policy violation":
             cat = "Unwarranted refusal"
-        return {"verdict": "Fail", "category": cat, "reason": f"{hard[0]['label']} failed: {hard[0]['detail']}.", "checks": checks}
+        return {"verdict": "Fail", "category": cat, "reason": f"{hard[0]['label']} failed: {hard[0]['detail'].rstrip('.')}.", "checks": checks}
     if partial:
+        skip_judges()
         return {"verdict": "Review", "category": "Partial match",
                 "reason": f"{partial[0]['label']} only partly met: {partial[0]['detail']}.", "checks": checks}
+    if pending:
+        return {"verdict": "Review", "category": "Awaiting AI judge",
+                "reason": f"Waiting for the AI judge to check: {pending['spec']}", "checks": checks}
     if manual:
         return {"verdict": "Review", "category": "Awaiting human review",
                 "reason": f"Needs a reviewer to judge: {manual['detail']}", "checks": checks}

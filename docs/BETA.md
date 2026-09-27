@@ -1,6 +1,6 @@
 # Running a private beta
 
-The public sees a demo. Anyone can ask for access; you approve by hand; approved people get their own project and an API key. The Workbench never calls a model, so a beta costs you hosting only. Each user's app pays for its own model calls.
+The public sees a demo. Anyone can ask for access; you approve by hand; approved people get their own project and an API key. The Workbench calls a model only for the AI judge, with the model key each project saves itself, so a beta costs you hosting only. Each user pays for their own model calls, including the AI judge's.
 
 ## What a visitor sees
 
@@ -56,6 +56,10 @@ Never set `EVAL_WORKBENCH_DEV_KEY` on a shared or public server.
 ## Deploying
 
 The `Dockerfile` in the repository root builds one image that serves the API and the web app. Build context is the repository root. On the host, set `EVAL_WORKBENCH_ADMIN_KEY`, `DATABASE_URL` (Postgres with persistent storage), `TRUST_PROXY=1`, and put HTTPS in front of it (most hosts do this for you). The image reads `PORT` if the host sets it.
+
+### AI judge
+
+Projects save their own model key (Production page, Checks on live traffic). It is encrypted with a key derived from `EVAL_WORKBENCH_SECRET`, or from `EVAL_WORKBENCH_ADMIN_KEY` if that is not set; changing that secret makes saved model keys unreadable, and projects have to enter them again. Production requests are judged in a background thread just after they are stored. Cloud Run slows the CPU down between requests, so a judgment can wait until the next request arrives; for prompt judgments, turn that off with `gcloud run services update eval-workbench --region us-central1 --no-cpu-throttling` (the instance is then billed while it is running). `EVAL_WORKBENCH_JUDGE_BASE_URL` points the judge at another OpenAI-compatible API (tests use a stand-in).
 
 ### Current deployment
 

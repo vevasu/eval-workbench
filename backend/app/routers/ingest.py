@@ -1,3 +1,4 @@
+import random
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -7,9 +8,10 @@ from ..auth import current_project
 from ..limits import check_result_quota, check_spans, check_text, check_trace_context
 from ..ratelimit import hit
 from ..settings import limits
-from ..db import get_session
+from ..db import engine, get_session
 from ..models import Project, Result, Run, Span, Suite, now_ms
 from ..schemas import CamelModel, ResultOut, SpanIn
+from ..judge import judge_later, needs_judge
 from ..scoring import evaluate, span_totals
 from ..serialize import results_for
 from ..services import create_suite, next_run_id, validate_checks
@@ -60,7 +62,10 @@ def ingest_trace(body: TraceIn, project: Project = Depends(current_project), ses
         session.add(run)
         session.flush()
 
-    ev = evaluate(body.checks, body.actual, body.latency_ms, run.sla_ms, body.error, live=True)
+    # The app's own checks, then the suite's live checks set in the web app. An AI judge runs on its sample of requests.
+    checks = [c for c in body.checks + (suite.live_checks or [])
+              if c.get("type") != "llm_judge" or random.random() * 100 < c.get("sample", 100)]
+    ev = evaluate(checks, body.actual, body.latency_ms, run.sla_ms, body.error, live=True)
     totals = span_totals([s.model_dump() for s in body.spans])
     row = Result(project_id=project.id, run_id=run.id, case_id="pending", input=body.input, expected="", actual=body.actual,
                  verdict=ev["verdict"], category=ev["category"], reason=ev["reason"], checks=ev["checks"],
@@ -77,5 +82,7 @@ def ingest_trace(body: TraceIn, project: Project = Depends(current_project), ses
     run.finished_at = row.timestamp + row.latency_ms
     session.add(run)
     session.commit()
+    if needs_judge(ev):
+        judge_later(engine, project.id, [row.id])
     stored = next(r for r in results_for(session, project.id, run.id) if r.case_id == row.case_id)
     return {"runId": run.id, "result": stored}

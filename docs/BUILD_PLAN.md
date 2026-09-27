@@ -95,6 +95,14 @@ Built. Review results (partial matches, human rubrics) used to wait forever and 
 
 Done when: a reviewer can work through the queue in demo and API mode, the run's pass rate changes with their decisions, and undo restores the automatic result.
 
+## Phase 8b: Checks set in the Workbench, and an AI judge
+
+Built, following what LangSmith (online evaluators) and Arize (online evals) do.
+
+- Suites and test cases can be uploaded (JSON or CSV), added, edited and deleted in the web app with a key, not only through the API.
+- **Checks on live traffic**: per application, set on the Production page, run on every new production request after the checks the app sends.
+- **AI judge** (`llm_judge` check, with `criteria` and an optional `sample` percentage): a model decides pass or fail with a reason, using the project's own OpenAI key, saved encrypted (`PUT /settings/judge`, **Save and test** in the web app). Production requests are stored at once as Review ("Awaiting AI judge") and judged in the background; test runs are judged while their results upload. A judge is skipped when a rule already failed the answer, and if it can't run (no key, provider error) the result goes to a person in the review queue.
+
 ## Phase 9: CI integration
 
 - A CLI in the SDK: `workbench run --suite <id> --entry module:function --version <v> --fail-on-regression`.
@@ -106,7 +114,7 @@ Done when: the CLI fails on a run with a regression and passes on a clean one.
 ## Later, not in this stage
 
 - Trace ingestion in OpenTelemetry / OpenInference format, so apps in other languages or already instrumented with other tools can send production traffic.
-- LLM-as-a-judge evaluators, registered in the evaluator registry.
+- More AI judge providers (Anthropic and others) next to OpenAI.
 - Price tables per model, so cost can be worked out when the app sends only token counts.
 - Dataset versioning and experiment comparison.
 - Alerts on regressions and SLA breaches.

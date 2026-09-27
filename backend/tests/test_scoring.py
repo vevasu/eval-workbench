@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.scoring import compare_runs, evaluate, span_totals, summarize
+from app.scoring import compare_runs, decide, evaluate, span_totals, summarize
 
 DATA = json.loads((Path(__file__).resolve().parents[2] / "data" / "sample-data.json").read_text(encoding="utf-8"))
 CASES = {(s["id"], c["id"]): c for s in DATA["suites"] for c in s["cases"]}
@@ -13,6 +13,7 @@ CASES = {(s["id"], c["id"]): c for s in DATA["suites"] for c in s["cases"]}
 LIVE_CHECKS = [{"type": "not_contains", "values": ["…"], "category": "Incomplete answer"},
                {"type": "regex", "pattern": "^\\s*(\\S+\\s+){0,79}\\S+\\s*$", "category": "Instruction not followed"}]
 BEDTIME_CHECK = {"type": "not_contains", "values": ["monster", "blood", "kill", "scary", "dead"], "category": "Policy violation"}
+LIVE_JUDGE = DATA["suites"][0]["liveChecks"][0]  # the demo suite's AI judge, set as a check on live traffic
 TEST_RUNS = [r for r in DATA["runs"] if r["target"] != "production"]
 LIVE_RUNS = [r for r in DATA["runs"] if r["target"] == "production"]
 
@@ -31,9 +32,16 @@ def test_scorer_matches_every_stored_result(run):
 @pytest.mark.parametrize("run", LIVE_RUNS, ids=[r["id"] for r in LIVE_RUNS])
 def test_scorer_and_totals_match_every_production_request(run):
     for r in run["results"]:
-        checks = LIVE_CHECKS + ([BEDTIME_CHECK] if r["tags"] == ["bedtime"] else [])
+        judged = next((c for c in r["checks"] if c["type"] == "llm_judge"), None)
+        checks = LIVE_CHECKS + ([BEDTIME_CHECK] if r["tags"] == ["bedtime"] else []) + ([LIVE_JUDGE] if judged else [])
         error = next((s["attrs"]["error"] for s in r["spans"] if "error" in s["attrs"]), None)
         ev = evaluate(checks, r["actual"], r["latencyMs"], run["slaMs"], error, live=True)
+        if ev["category"] == "Awaiting AI judge":  # fill in what the model answered, as app/judge.py does, and decide again
+            pending = next(c for c in ev["checks"] if c.get("pending"))
+            refusal = pending.pop("refusalExpected")
+            pending.pop("pending")
+            pending.update({"pass": judged["pass"], "detail": judged["detail"], "judgedBy": judged["judgedBy"]})
+            ev = decide(ev["checks"], r["actual"], r["latencyMs"], run["slaMs"], live=True, refusal_expected=refusal)
         assert (ev["verdict"], ev["category"], ev["reason"], ev["checks"]) == (r["verdict"], r["category"], r["reason"], r["checks"]), r["caseId"]
         totals = span_totals(r["spans"])
         assert (totals["tokensIn"], totals["tokensOut"]) == (r["tokensIn"], r["tokensOut"]), r["caseId"]
