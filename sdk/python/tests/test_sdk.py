@@ -166,6 +166,11 @@ def test_observe_sends_a_live_trace_without_blocking_the_app(server):
 
     with pytest.raises(ValueError):
         client.observe("live-suite", lambda t: (_ for _ in ()).throw(ValueError("boom")), "x")
+    # Errors the app marks as not about quality (such as a rejected key) are re-raised but never sent.
+    with pytest.raises(PermissionError):
+        client.observe("ignored-suite", lambda t: (_ for _ in ()).throw(PermissionError("bad key")), "x", ignore_errors=(PermissionError,))
+    client.flush()
+    assert _call(base, "GET", "/runs?suite_id=ignored-suite", key=key) == []
     dead = Client(base_url=f"http://127.0.0.1:{_free_port()}", api_key=key, retries=0)
     assert dead.observe("live-suite", lambda t: "still works", "x") == "still works"
 

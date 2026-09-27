@@ -20,7 +20,7 @@ If `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` are in `.env`, every story 
 
 ## Put it online (Google Cloud Run)
 
-Visitors enter their own OpenAI key on the page. The key is sent with each request, used for that one OpenAI call, and never stored, logged or sent to the Workbench; the browser keeps it only if the visitor ticks **Remember on this device**. When the server has `OPENAI_API_KEY` set (as when you run it locally with `.env`), the key field is hidden and the server's key is used, so never set it on a public deployment.
+Visitors enter their own OpenAI key on the page. The key is sent with each request, used for that one OpenAI call, and never stored, logged or sent to the Workbench; the browser keeps it only if the visitor ticks **Remember on this device**. Requests where OpenAI rejects the visitor's key are not sent to the Workbench (`ignore_errors` in `client.observe`), because they say nothing about story quality. When the server has `OPENAI_API_KEY` set (as when you run it locally with `.env`), the key field is hidden and the server's key is used, so never set it on a public deployment.
 
 Every story is sent to Eval Workbench, so the deployed app shows up on the Workbench's **Production** page. On Cloud Run the app waits for the trace upload (at most 5 seconds) before replying, because Cloud Run pauses the CPU once a response is sent.
 

@@ -33,6 +33,13 @@ class StoryError(Exception):
         self.status = status
 
 
+class KeyRejected(StoryError):
+    """OpenAI refused the visitor's API key. Says nothing about story quality, so it isn't sent to the Workbench."""
+
+    def __init__(self) -> None:
+        super().__init__("OpenAI rejected this API key. Check it and try again.", 401)
+
+
 def load_env() -> None:
     env_file = BASE / ".env"
     if not env_file.exists():
@@ -86,7 +93,7 @@ def call_openai(messages: list, api_key: str = "") -> str:
                 data = json.load(resp)
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                raise StoryError("OpenAI rejected this API key. Check it and try again.", 401) from None
+                raise KeyRejected() from None
             detail = "OpenAI rejected the request."
             try:
                 detail = json.load(e).get("error", {}).get("message", detail)

@@ -106,6 +106,7 @@ class Client:
         session_id: Optional[str] = None,
         tags: Optional[list] = None,
         metadata: Optional[dict] = None,
+        ignore_errors: tuple = (),
     ) -> Any:
         """Call fn(input_text) for a real request and send its trace to the Workbench in the background.
 
@@ -114,6 +115,8 @@ class Client:
         conversation, `tags` and `metadata` are for filtering. Token counts and cost are summed from span attributes
         (prompt_tokens or input_tokens, completion_tokens or output_tokens, cost_usd).
         Sending never slows or breaks the request: failures to upload are dropped. Errors from fn are re-raised.
+        A request that fails with one of `ignore_errors` (exception classes) is not sent at all: use it for failures
+        that say nothing about your app's quality, such as the caller's own API key being rejected.
         """
         rec, token = start_recording()
         timestamp = int(time.time() * 1000)
@@ -126,6 +129,8 @@ class Client:
         finally:
             latency = rec.now_ms()
             stop_recording(token)
+        if failure is not None and ignore_errors and isinstance(failure, tuple(ignore_errors)):
+            raise failure
         root = {"name": "request", "kind": "root", "start": 0, "dur": round(latency, 1), "depth": 0,
                 "attrs": {"suite": suite_name or suite_id}}
         payload = {"suiteId": suite_id, "suiteName": suite_name, "input": input_text, "actual": output,

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from story import StoryError, generate_story, server_key
+from story import KeyRejected, StoryError, generate_story, server_key
 
 try:
     from eval_workbench import Client
@@ -63,7 +63,8 @@ def generate(req: StoryRequest, openai_key: Optional[str] = Header(default=None,
             text = req.prompt if req.genre == "any" else f"{req.prompt} (genre: {req.genre})"
             story = workbench.observe(LIVE_SUITE_ID, make, text, suite_name=LIVE_SUITE_NAME,
                                       version=os.environ.get("APP_VERSION", "live"), model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                                      checks=LIVE_CHECKS, session_id=req.session_id, tags=[req.genre])
+                                      checks=LIVE_CHECKS, session_id=req.session_id, tags=[req.genre],
+                                      ignore_errors=(KeyRejected,))  # a visitor's wrong key is not a quality problem
         else:
             story = make(req.prompt)
     except StoryError as e:
