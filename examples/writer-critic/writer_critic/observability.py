@@ -29,6 +29,7 @@ def run_traced(run: Callable[[], Result], brief: Brief) -> Result:
         box["result"] = run()
         return box["result"].final
 
-    Client().observe(SUITE_ID, work, brief.summary(), suite_name=SUITE_NAME, version="v1",
-                     model=config.MODEL, checks=LIVE_CHECKS)
+    Client().observe(SUITE_ID, work, brief.summary(), suite_name=SUITE_NAME, version=os.environ.get("APP_VERSION", "v1"),
+                     model=config.MODEL, checks=LIVE_CHECKS, tags=[brief.format],
+                     metadata={"audience": brief.audience, "provider": config.PROVIDER})
     return box["result"]

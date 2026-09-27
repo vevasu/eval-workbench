@@ -42,6 +42,8 @@
   <section class="out" id="out" hidden aria-live="polite"><div id="story"></div><div class="meta" id="meta"></div></section>
 </main>
 <script>
+// Groups this tab's stories into one session in Eval Workbench.
+const sessionId = 'tab-' + Math.random().toString(36).slice(2, 10);
 const f = document.getElementById('f'), out = document.getElementById('out'), story = document.getElementById('story'), meta = document.getElementById('meta'), go = document.getElementById('go');
 f.addEventListener('submit', async e => {
   e.preventDefault();
@@ -49,7 +51,7 @@ f.addEventListener('submit', async e => {
   out.hidden = false; story.className = ''; story.textContent = ''; meta.textContent = '';
   try {
     const r = await fetch('/api/story', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: document.getElementById('prompt').value, genre: document.getElementById('genre').value }) });
+      body: JSON.stringify({ prompt: document.getElementById('prompt').value, genre: document.getElementById('genre').value, sessionId }) });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Something went wrong.');
     story.textContent = d.story; meta.textContent = d.words + ' words';

@@ -1,4 +1,6 @@
 """Beta allowances and size caps. Checked on every write that stores data."""
+import json
+
 from fastapi import HTTPException
 from sqlmodel import Session, func, select
 
@@ -38,3 +40,14 @@ def check_spans(spans: list) -> None:
     cap = limits()["max_spans"]
     if len(spans) > cap:
         raise HTTPException(status_code=413, detail=f"An execution can have at most {cap} spans.")
+
+
+def check_trace_context(user_id, session_id, tags: list, metadata: dict) -> None:
+    """User and session ids, tags and metadata are for grouping and filtering, so they stay small."""
+    for name, value in (("userId", user_id), ("sessionId", session_id)):
+        if value and len(value) > 200:
+            raise HTTPException(status_code=413, detail=f"'{name}' is longer than 200 characters.")
+    if len(tags) > 20 or any(len(t) > 60 for t in tags):
+        raise HTTPException(status_code=413, detail="Send at most 20 tags of up to 60 characters each.")
+    if metadata and len(json.dumps(metadata, default=str)) > 4000:
+        raise HTTPException(status_code=413, detail="'metadata' is larger than 4000 characters as JSON.")

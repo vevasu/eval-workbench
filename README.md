@@ -1,6 +1,6 @@
 # Eval Workbench
 
-Evaluate, debug and monitor the quality of AI applications: evaluation suites, execution telemetry, failure analysis and run comparison.
+Evaluate, debug and monitor the quality of AI applications: evaluation suites, production monitoring, execution telemetry, failure analysis and run comparison.
 
 Your application sends data to the Workbench, the way it would to LangSmith or Arize. The Workbench never calls into your application.
 
@@ -39,7 +39,7 @@ Live at https://eval-workbench-5lofnwh6hq-uc.a.run.app (Google Cloud Run, Neon P
 
 ```
 pip install -e sdk/python     # from this repository
-pip install https://eval-workbench-5lofnwh6hq-uc.a.run.app/sdk/eval_workbench-0.1.0-py3-none-any.whl   # or from the hosted Workbench
+pip install https://eval-workbench-5lofnwh6hq-uc.a.run.app/sdk/eval_workbench-0.2.0-py3-none-any.whl   # or from the hosted Workbench
 ```
 
 ```python
@@ -57,9 +57,19 @@ print(result.url)
 
 The SDK runs each test case through your function in your own process, times it, records nested spans, uploads the outputs, and the backend scores them. Errors in your function become execution errors. Tests: `cd sdk/python && python -m pytest`.
 
+For production traffic, wrap the function that handles a real request:
+
+```python
+answer = client.observe("support-bot", my_app, user_input, suite_name="Support bot", version="v1.1", model="gpt-4o-mini",
+                        user_id=user.id, session_id=conversation.id, tags=["billing"],
+                        checks=[{"type": "not_contains", "values": ["I cannot help"]}])
+```
+
+It runs your function as normal and sends the request, its spans, tokens and cost to the Workbench in the background, without slowing or breaking your app. The **Production** page then shows failure rate, latency, tokens and cost over time and per deployed version, and **Add to test suite** turns a failing request into a test case.
+
 ## Example applications
 
-- `examples/story-generator`: a small OpenAI-backed story writer (80 words or fewer) with an eval suite and live tracing. See its README.
+- `examples/story-generator`: a small OpenAI-backed story writer (80 words or fewer) with an eval suite and live tracing (sessions, tags, tokens and cost). See its README.
 - `examples/writer-critic`: a multi-agent app (Planner, Writer, Critic, Editor) with a critique-and-revise loop, a live web UI, and optional tracing with one span per agent. See its README.
 
 ## Repository
@@ -70,5 +80,5 @@ The SDK runs each test case through your function in your own process, times it,
 - `examples/` example applications that use the SDK
 - `data/sample-data.json` sample suites and run history, used to seed the backend
 - `templates/` CSV and JSON templates for importing a suite
-- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 6 are built; CI integration is next)
+- `docs/BUILD_PLAN.md` the plan for the backend, SDK and integrations (phases 0 to 7 are built; the human review queue is next)
 - `CLAUDE.md` project context for Claude Code

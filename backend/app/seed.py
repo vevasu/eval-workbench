@@ -51,7 +51,7 @@ def seed(session: Session, project_id: str = DEMO_PROJECT_ID) -> None:
                 project_id=project_id, suite_id=suite_data["id"], id=case_data["id"], position=position,
                 tag=case_data.get("tag", ""), input=case_data["input"], expected=case_data.get("expected", ""),
                 checks=case_data.get("checks", []), recorded=case_data.get("recorded"),
-                recorded_latency_ms=case_data.get("recordedLatencyMs")))
+                recorded_latency_ms=case_data.get("recordedLatencyMs"), origin=case_data.get("origin")))
 
     for run_data in data["runs"]:
         session.add(Run(
@@ -65,7 +65,10 @@ def seed(session: Session, project_id: str = DEMO_PROJECT_ID) -> None:
                 actual=result_data.get("actual", ""), verdict=result_data["verdict"], category=result_data.get("category"),
                 reason=result_data.get("reason", ""), checks=result_data.get("checks", []),
                 latency_ms=result_data.get("latencyMs", 0), timestamp=result_data["timestamp"],
-                model=result_data.get("model", ""), version=result_data.get("version", ""))
+                model=result_data.get("model", ""), version=result_data.get("version", ""),
+                user_id=result_data.get("userId"), session_id=result_data.get("sessionId"), tags=result_data.get("tags"),
+                meta=result_data.get("metadata"), tokens_in=result_data.get("tokensIn"),
+                tokens_out=result_data.get("tokensOut"), cost_usd=result_data.get("costUsd"))
             session.add(result)
             session.flush()
             for span_data in result_data.get("spans", []):

@@ -82,7 +82,7 @@ def add_case(session: Session, suite: Suite, data: dict) -> TestCase:
     case = TestCase(
         project_id=suite.project_id, suite_id=suite.id, id=case_id, position=count, tag=data.get("tag") or "",
         input=data["input"], expected=data.get("expected") or "", checks=data.get("checks") or [],
-        recorded=data.get("recorded"), recorded_latency_ms=data.get("recorded_latency_ms"),
+        recorded=data.get("recorded"), recorded_latency_ms=data.get("recorded_latency_ms"), origin=data.get("origin"),
     )
     session.add(case)
     session.flush()

@@ -100,7 +100,7 @@ Before a risky change (a schema migration, a bulk delete), take a manual snapsho
 ## What beta users do
 
 1. You send them the key and your Workbench address (`approve` prints the message).
-2. They install the SDK from your site (`pip install <your Workbench address>/sdk/eval_workbench-0.1.0-py3-none-any.whl`; the **Get started** page shows the exact command) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
+2. They install the SDK from your site (`pip install <your Workbench address>/sdk/eval_workbench-0.2.0-py3-none-any.whl`; the **Get started** page shows the exact command) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
 3. They run a suite with `client.run_suite(...)` or send live traffic with `client.observe(...)`.
 4. They open your site, choose **I have a key**, paste it, and see only their own project.
 

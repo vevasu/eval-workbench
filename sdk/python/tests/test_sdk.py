@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import socket
@@ -143,7 +144,13 @@ def test_observe_sends_a_live_trace_without_blocking_the_app(server):
     def app(text):
         return "Story about " + text
 
-    assert client.observe("live-suite", app, "a fox", suite_name="Live suite", version="live", model="m") == "Story about a fox"
+    def llm(text):
+        with span("llm.call", kind="llm") as s:
+            s.set(input_tokens=12, output_tokens=30, cost_usd=0.0004)
+            return app(text)
+
+    assert client.observe("live-suite", llm, "a fox", suite_name="Live suite", version="live", model="m", user_id=42,
+                          session_id="chat-1", tags=["fables"], metadata={"plan": "free", "at": datetime.date(2026, 9, 27)}) == "Story about a fox"
     for _ in range(40):  # the upload happens in a background thread
         runs = _call(base, "GET", "/runs?suite_id=live-suite", key=key)
         if runs and runs[0]["results"] is None and _call(base, "GET", f"/runs/{runs[0]['id']}", key=key)["results"]:
@@ -151,8 +158,11 @@ def test_observe_sends_a_live_trace_without_blocking_the_app(server):
         time.sleep(0.25)
     detail = _call(base, "GET", f"/runs/{runs[0]['id']}", key=key)["results"][0]
     assert detail["input"] == "a fox" and detail["actual"] == "Story about a fox"
-    spans = _call(base, "GET", f"/runs/{runs[0]['id']}/results/{detail['caseId']}", key=key)["spans"]
-    assert [s["name"] for s in spans] == ["request", "llm.generate"]
+    one = _call(base, "GET", f"/production/traces/{runs[0]['id']}/{detail['caseId']}", key=key)["result"]
+    assert [s["name"] for s in one["spans"]] == ["request", "llm.call", "llm.generate"]
+    assert (one["userId"], one["sessionId"], one["tags"]) == ("42", "chat-1", ["fables"])
+    assert one["metadata"] == {"plan": "free", "at": "2026-09-27"}  # values JSON can't hold are sent as text
+    assert (one["tokensIn"], one["tokensOut"], one["costUsd"], one["verdict"]) == (12, 30, 0.0004, "Pass")
 
     with pytest.raises(ValueError):
         client.observe("live-suite", lambda t: (_ for _ in ()).throw(ValueError("boom")), "x")

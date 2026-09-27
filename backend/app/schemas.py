@@ -33,6 +33,18 @@ class ResultOut(CamelModel):
     model: str = ""
     version: str = ""
     spans: list[SpanOut] = []
+    # Production traces only (None for test runs).
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    tags: Optional[list] = None
+    metadata: Optional[dict] = Field(default=None, validation_alias="meta")
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
+    cost_usd: Optional[float] = None
+
+
+# Left out of /state, where every result is from a test run and these are always empty.
+LIVE_FIELDS = {"user_id", "session_id", "tags", "metadata", "tokens_in", "tokens_out", "cost_usd"}
 
 
 class CaseOut(CamelModel):
@@ -43,6 +55,7 @@ class CaseOut(CamelModel):
     checks: list = []
     recorded: Optional[str] = None
     recorded_latency_ms: Optional[int] = None
+    origin: Optional[str] = None
 
 
 class SuiteOut(CamelModel):
@@ -101,6 +114,7 @@ class CaseIn(CamelModel):
     checks: list[dict] = []
     recorded: Optional[str] = None
     recorded_latency_ms: Optional[int] = None
+    origin: Optional[str] = Field(default=None, max_length=200)  # "<run id>/<case id>" of a production trace
 
 
 class CasePatch(CamelModel):

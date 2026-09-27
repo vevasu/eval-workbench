@@ -38,7 +38,7 @@ class LLM:
             key = os.environ.get("OPENAI_API_KEY", "")
             if not key or key.startswith("sk-your"):
                 raise LLMError("No API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env (see .env.example).")
-            url = "https://api.openai.com/v1/chat/completions"
+            url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions"  # any OpenAI-compatible API
             headers = {"Authorization": f"Bearer {key}"}
             body = {"model": self.model, "max_tokens": max_tokens, "temperature": temperature,
                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}

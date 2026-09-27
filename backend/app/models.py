@@ -1,7 +1,7 @@
 import time
 from typing import Any, Optional
 
-from sqlalchemy import BigInteger
+from sqlalchemy import BigInteger, Index
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
@@ -55,6 +55,7 @@ class TestCase(SQLModel, table=True):
     checks: Any = Field(default_factory=list, sa_column=Column(JSON))
     recorded: Optional[str] = None
     recorded_latency_ms: Optional[int] = None
+    origin: Optional[str] = None  # "<run id>/<case id>" of the production trace this case was created from
 
 
 class Run(SQLModel, table=True):
@@ -71,6 +72,7 @@ class Run(SQLModel, table=True):
 
 
 class Result(SQLModel, table=True):
+    __table_args__ = (Index("ix_result_project_timestamp", "project_id", "timestamp"),)
     id: Optional[int] = Field(default=None, primary_key=True)
     project_id: str = Field(index=True)
     run_id: str = Field(index=True)
@@ -86,6 +88,14 @@ class Result(SQLModel, table=True):
     timestamp: int = Field(default_factory=now_ms, sa_column=ms_column())
     model: str = ""
     version: str = ""
+    # Production traces: who the request came from, how to group it, and what it used. Empty for test runs.
+    user_id: Optional[str] = Field(default=None, index=True)
+    session_id: Optional[str] = Field(default=None, index=True)
+    tags: Any = Field(default=None, sa_column=Column(JSON))
+    meta: Any = Field(default=None, sa_column=Column(JSON))  # "metadata" in the API; that name is taken in SQLAlchemy
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
+    cost_usd: Optional[float] = None
 
 
 class Span(SQLModel, table=True):

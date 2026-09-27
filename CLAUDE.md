@@ -14,18 +14,19 @@ Long term goal: a public, bring-your-own-key product in the same space as LangSm
 - `templates/` holds the CSV and JSON import templates. The same templates can be downloaded from the Import suite dialog.
 - `backend/` is a FastAPI + SQLModel (SQLite) service: projects and hashed API keys, write API, server-side scoring in `app/scoring.py` (a port of the Evaluators module, tested against every result in `sample-data.json`), and `GET /state`, which returns everything in the `sample-data.json` shape for the web app. Suites, cases and runs are keyed by `(project_id, id)`. It also serves `frontend/`.
 - `sdk/python/` is the client (`Client.run_suite`, `@trace`, `span`). `examples/story-generator` is an OpenAI app evaluated through it.
-- The frontend has two modes. Demo mode uses localStorage as above. API mode is chosen in the sidebar (URL and key kept in `localStorage` under `eval-workbench.api.v1`) and loads `GET /state` into the same `Store.state` shape, so all views are unchanged; write actions are blocked there (`API_WRITE_ACTIONS`). Simulated, recorded and live-model runs exist only in demo mode.
+- The frontend has two modes. Demo mode uses localStorage as above. API mode is chosen in the sidebar (URL and key kept in `localStorage` under `eval-workbench.api.v1`) and loads `GET /state` into the same `Store.state` shape, so all views are unchanged; write actions are blocked there (`API_WRITE_ACTIONS`), except **Add to test suite**, which posts a case with `origin`. Simulated, recorded and live-model runs exist only in demo mode.
+- Production monitoring: live traffic sent with `client.observe()` (`POST /ingest`) is stored as runs with target `production`, one per version and model. `GET /state` leaves these out; the Production page and the Traces page's Production tab read them through the `Prod` module (demo: computed from localStorage; API: `/production/stats`, `/production/traces`, refreshed in the background). The demo seed includes three weeks of traffic to the story generator (runs `DS-R6` and `DS-R7`) where v1.4 fails more than v1.3.
 - Private beta support: public `POST /access-requests`, operator approval (`python -m app.manage`), per-project allowances and size limits (`app/limits.py`, `app/settings.py`), rate limits (`app/ratelimit.py`), and `EVAL_WORKBENCH_ENV=production`. See `docs/BETA.md`. The demo-mode banner, request form and **Get started** page (`#/start`, integration guide) are in the frontend; `frontend/admin.html` is the operator page for approving requests; `frontend/privacy.html` is the privacy notice (keep it accurate when data handling changes).
 - Deployed on Google Cloud Run (`eval-workbench`, us-central1, Neon Postgres): https://eval-workbench-5lofnwh6hq-uc.a.run.app. The Docker build serves the SDK wheel at `/sdk/`; keep `SDK_VERSION` in `index.html` and the wheel name in `app/manage.py` in step with `sdk/python`. See `docs/BETA.md`.
 - Schema changes go through Alembic migrations (`backend/migrations`, applied on startup by `app/migrate.py`). Never rely on `create_all` to change an existing table. See `docs/BETA.md`.
-- Built so far: phases 0 to 6 of `docs/BUILD_PLAN.md`. Phase 7 (CI integration) is next.
+- Built so far: phases 0 to 7 of `docs/BUILD_PLAN.md`. Phase 8 (human review queue) is next, then phase 9 (CI integration).
 
 ## How to work on this project
 
 - Build one capability at a time. Finish it, test it, then move on.
 - Never replace working functionality when adding a feature. Keep the existing architecture and UI unless a change is genuinely necessary, and say why when it is.
 - Don't overbuild future capabilities. Leave clean extension points instead.
-- After every change, check that all seven pages still render and that the drill-down path still works: dashboard, suite, test case, execution trace, failure reason.
+- After every change, check that every page still renders (in demo mode and API mode) and that the drill-down paths still work: dashboard, suite, test case, execution trace, failure reason; and Production, failure reason, request, Add to test suite, test case.
 - Keep sample data realistic, so the product can be demonstrated at any point.
 
 ## Frontend architecture
@@ -40,13 +41,14 @@ The script in `frontend/index.html` is split into modules, each marked by a `/* 
 | Telemetry | `buildSpans()` builds the span tree for each execution | Agent and tool-call traces, tokens and cost on spans |
 | Targets | Adapters that produce an output for a test case: `simulated`, `recorded`, `live` (Claude, only inside claude.ai) | HTTP endpoint target, provider targets with the user's own key |
 | Run execution | `executeRun(suite, cfg, onProgress)` runs every case, evaluates it, records telemetry | Moves to the SDK and backend |
-| Analytics | `summarize()`, `compareRuns()`, regressions, fixes, latency regressions | Automatic regression detection, alerts |
-| Store | `load`, `save`, `reset` against localStorage | Replace with an API client (keep localStorage as a demo mode) |
+| Analytics | `summarize()`, `compareRuns()`, regressions, fixes, latency regressions, `liveStats()` for production windows | Automatic regression detection, alerts |
+| Store | `load`, `save`, `reset` against localStorage, and the `Api` client | Replace with an API client (keep localStorage as a demo mode) |
+| Production data | `Prod.stats()`, `traces()`, `trace()`: `{ data }`, `{ pending }` or `{ error }`, from localStorage in demo mode or `/production` in API mode | Alerts on failure-rate changes, OpenTelemetry ingestion |
 | Seed data | `SEED_SUITES` and `buildSeed()` | |
 | Charts | Hand-written SVG line chart, bar lists, pass/fail/review bar | |
 | Views | One render function per page, hash router `route()`, delegated events | |
 
-Pages and routes: `#/dashboard`, `#/start`, `#/suites`, `#/suites/:id`, `#/run`, `#/cases`, `#/cases/:suiteId/:caseId`, `#/results`, `#/results/:runId`, `#/compare?suite&a&b`, `#/traces`, `#/trace/:runId/:caseId`. Filters live in the URL query string.
+Pages and routes: `#/dashboard`, `#/production?suite&version&w&metric`, `#/start`, `#/suites`, `#/suites/:id`, `#/run`, `#/cases`, `#/cases/:suiteId/:caseId`, `#/results`, `#/results/:runId`, `#/compare?suite&a&b`, `#/traces?src=live|runs` (production requests by default), `#/trace/:runId/:caseId` (a test execution, or a production request when the run's target is `production`). Filters live in the URL query string.
 
 Notes:
 - The `live` target and the Claude `downloads` capability only work when the page is published inside claude.ai. Outside claude.ai, `window.claude` doesn't exist, so the live target is disabled and downloads use a normal browser download. Don't remove this code; it's harmless.
@@ -58,7 +60,7 @@ This is the shape the backend should mirror. Field names are the ones used in `s
 
 **Suite**: `id`, `prefix` (for case and run IDs, such as `RW`), `name`, `description`, `pipeline` (`chat`, `tools` or `rag`), `slaMs`, `systemPrompt`, `context` (reference data), `createdAt`, `cases[]`.
 
-**Test case**: `id` (such as `RW-006`), `input`, `expected` (human-readable expected behaviour), `tag`, `checks[]`, optional `recorded` and `recordedLatencyMs` (actual output uploaded for offline scoring), optional `sim` and `hard` (simulator only; not part of the real product).
+**Test case**: `id` (such as `RW-006`), `input`, `expected` (human-readable expected behaviour), `tag`, `checks[]`, optional `recorded` and `recordedLatencyMs` (actual output uploaded for offline scoring), optional `origin` (`<runId>/<caseId>` of the production request it was created from), optional `sim` and `hard` (simulator only; not part of the real product).
 
 **Check**: `type` plus type-specific fields, and an optional `category` override for its failure category.
 - `contains_all` with `values[]`. Partly met sends the case to review.
@@ -69,9 +71,9 @@ This is the shape the backend should mirror. Field names are the ones used in `s
 - `max_length` with `max`
 - `human` with `rubric`. Always sends the case to review.
 
-**Run**: `id` (such as `RW-R5`), `suiteId`, `version`, `model`, `target`, `note` (what changed), `startedAt`, `finishedAt`, `slaMs`, `results[]`.
+**Run**: `id` (such as `RW-R5`), `suiteId`, `version`, `model`, `target` (`simulated`, `recorded`, `live`, `sdk`, or `production` for live traffic), `note` (what changed), `startedAt`, `finishedAt`, `slaMs`, `results[]`.
 
-**Result (one execution)**: `caseId`, `input`, `expected`, `actual`, `verdict` (`Pass`, `Fail` or `Review`), `category`, `reason`, `checks[]` (each with `pass`, `partial`, `manual`, `detail`), `latencyMs`, `timestamp`, `model`, `version`, `spans[]`.
+**Result (one execution)**: `caseId`, `input`, `expected`, `actual`, `verdict` (`Pass`, `Fail` or `Review`), `category`, `reason`, `checks[]` (each with `pass`, `partial`, `manual`, `detail`), `latencyMs`, `timestamp`, `model`, `version`, `spans[]`. Production requests (case IDs such as `LIVE-00042`) also have `userId`, `sessionId`, `tags[]`, `metadata{}`, and `tokensIn`, `tokensOut`, `costUsd` summed from span attributes (`spanTotals()` / `span_totals()`).
 
 **Span**: `name`, `kind` (`root`, `llm`, `tool`, `retrieval`, `other`), `start` and `dur` in ms relative to the request, `depth`, `attrs`.
 
@@ -86,7 +88,11 @@ These must behave identically wherever scoring happens (frontend today, backend 
 5. Otherwise, latency over the suite SLA: Fail, category `Latency SLA breach`.
 6. Otherwise: Pass.
 
+Production traffic follows the same rules, except that a request sent without any checks skips the "no checks: Review" rule: it is judged on errors and latency only (steps 1, 5 and 6), so live traffic doesn't flood review.
+
 Pass rate is Pass divided by all results. Review is not a pass.
+
+Production windows are `(from, to]`, cut into equal buckets from `from`; changes compare against the window of the same length before it. `liveStats()` in the frontend and `live_stats()` in `app/live.py` must give identical results.
 
 Comparison between a baseline and a candidate run: a regression is Pass to Fail; degraded is Pass to Review; a fix is anything to Pass; still failing is Fail to Fail; a latency regression is at least 30% and 300 ms slower.
 

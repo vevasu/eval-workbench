@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -28,6 +29,7 @@ workbench = Client() if Client and os.environ.get("EVAL_WORKBENCH_API_KEY") else
 class StoryRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=300)
     genre: str = Field(default="any", max_length=40)
+    session_id: Optional[str] = Field(default=None, max_length=64, alias="sessionId")  # one per browser tab
 
 
 @app.get("/")
@@ -44,7 +46,8 @@ def generate(req: StoryRequest):
         if workbench:
             text = req.prompt if req.genre == "any" else f"{req.prompt} (genre: {req.genre})"
             story = workbench.observe(LIVE_SUITE_ID, make, text, suite_name=LIVE_SUITE_NAME,
-                                      version="live", model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"), checks=LIVE_CHECKS)
+                                      version=os.environ.get("APP_VERSION", "live"), model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                                      checks=LIVE_CHECKS, session_id=req.session_id, tags=[req.genre])
         else:
             story = make(req.prompt)
     except StoryError as e:

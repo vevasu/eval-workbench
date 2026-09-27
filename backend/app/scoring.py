@@ -104,7 +104,10 @@ def expects_refusal(checks: list) -> bool:
     return any(REFUSAL_RE.search(v) for c in checks or [] for v in (c.get("values") or []))
 
 
-def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[float], error: Optional[str] = None) -> dict:
+def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[float], error: Optional[str] = None,
+             live: bool = False) -> dict:
+    """Score one execution. `live` is for production traffic: a request sent without checks is judged on errors
+    and latency only, instead of going to review (nobody reviews every live request)."""
     if error:
         return {"verdict": "Fail", "category": "Execution error", "reason": error, "checks": []}
     checks = []
@@ -118,7 +121,7 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
     hard = [r for r in checks if not r.get("manual") and r["pass"] is False and not r.get("partial")]
     partial = [r for r in checks if r.get("partial")]
     manual = next((r for r in checks if r.get("manual")), None)
-    if not checks:
+    if not checks and not live:
         return {"verdict": "Review", "category": "Awaiting human review",
                 "reason": "No automated checks are defined for this case.", "checks": checks}
     if hard:
@@ -135,7 +138,32 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
     if sla_ms and latency_ms > sla_ms:
         return {"verdict": "Fail", "category": "Latency SLA breach",
                 "reason": f"Answer was correct but took {fmt_ms(latency_ms)} against a {fmt_ms(sla_ms)} SLA.", "checks": checks}
+    if not checks:
+        return {"verdict": "Pass", "category": None, "reason": "No errors and within the latency SLA. No content checks were sent.",
+                "checks": checks}
     return {"verdict": "Pass", "category": None, "reason": "All automated checks passed.", "checks": checks}
+
+
+TOKENS_IN = ("prompt_tokens", "input_tokens")
+TOKENS_OUT = ("completion_tokens", "output_tokens")
+
+
+def span_totals(spans: list) -> dict:
+    """Tokens and cost for one execution, summed from span attributes (prompt_tokens or input_tokens,
+    completion_tokens or output_tokens, cost_usd). Set them on the span of each model call, not on its parents.
+    Same as spanTotals() in the frontend."""
+    totals = {"tokensIn": None, "tokensOut": None, "costUsd": None}
+    for sp in spans or []:
+        attrs = (sp.get("attrs") if isinstance(sp, dict) else getattr(sp, "attrs", None)) or {}
+        for field, keys in (("tokensIn", TOKENS_IN), ("tokensOut", TOKENS_OUT), ("costUsd", ("cost_usd",))):
+            for k in keys:
+                v = attrs.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0:
+                    totals[field] = (totals[field] or 0) + v
+    for field in ("tokensIn", "tokensOut"):
+        if totals[field] is not None:
+            totals[field] = int(totals[field])
+    return totals
 
 
 def _pct(sorted_vals: list, p: float):

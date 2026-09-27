@@ -23,6 +23,8 @@ except ImportError:  # the app works without the SDK installed
 
 BASE = Path(__file__).parent
 MAX_WORDS = 80
+# US dollars per million input and output tokens, for the cost shown in Eval Workbench. Edit to match your pricing.
+PRICES = {"gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.50, 10.00), "gpt-4.1-mini": (0.40, 1.60), "gpt-4.1": (2.00, 8.00)}
 
 
 class StoryError(Exception):
@@ -68,8 +70,9 @@ def call_openai(messages: list) -> str:
         raise StoryError("OPENAI_API_KEY is not set. Add it to the .env file and restart.", 500)
     model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     body = {"model": model, "max_tokens": 140, "messages": messages}
+    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")  # any OpenAI-compatible API
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions", data=json.dumps(body).encode(),
+        f"{base_url}/chat/completions", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
     with span("openai.chat.completions", kind="llm", model=model, max_tokens=140) as s:
         try:
@@ -85,8 +88,12 @@ def call_openai(messages: list) -> str:
         except urllib.error.URLError:
             raise StoryError("Could not reach OpenAI. Check your connection.") from None
         usage = data.get("usage", {})
-        s.set(prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"),
+        prompt_tokens, completion_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        s.set(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
               finish_reason=data["choices"][0].get("finish_reason"))
+        price = PRICES.get(model)
+        if price and prompt_tokens is not None and completion_tokens is not None:
+            s.set(cost_usd=round((prompt_tokens * price[0] + completion_tokens * price[1]) / 1e6, 8))
     return data["choices"][0]["message"]["content"]
 
 

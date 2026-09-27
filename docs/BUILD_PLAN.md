@@ -73,7 +73,28 @@ Done when: running the example produces a new run of the rewards suite with real
 
 Done when: every page shows the same data in API mode as in demo mode for the seeded project, and runs created by the SDK example appear on the dashboard, in comparisons and in trace views.
 
-## Phase 7: CI integration
+## Phase 7: Production monitoring
+
+Built. Live traffic is the point of the product: a test suite only covers what someone thought to write down.
+
+- `client.observe()` in the SDK sends each real request with its spans, and optionally `user_id`, `session_id`, `tags` and `metadata`. Token counts and cost are summed from span attributes (`prompt_tokens` or `input_tokens`, `completion_tokens` or `output_tokens`, `cost_usd`).
+- Live requests are scored by the checks the app sends. Without checks they are judged on errors and latency only, so they don't flood review.
+- `GET /production/stats` (volume, failure rate, latency, tokens and cost per time bucket and per deployed version, against the window before), `GET /production/traces` (filters and paging) and `GET /production/traces/{run}/{case}` (one request with its session). `GET /state` leaves production traffic out, because it grows without bound.
+- A **Production** page answers "is it healthy, what changed, why" for live traffic, with deploy markers on the trend. Traces has a Production tab with filters by application, version, verdict, failure reason, user, session, tag and text.
+- **Add to test suite** turns a failing production request into a test case (with `origin` pointing back to the request), so every future run checks it.
+
+Done when: the example apps, used through their own web pages, show up on the Production page with sessions, tags, tokens and cost; a new version that fails more is visible as a change; and a failing request becomes a test case that the next run evaluates.
+
+## Phase 8: Human review queue
+
+Next. Review results (partial matches, human rubrics) currently wait forever and never count as passes.
+
+- A queue of results waiting for review, from test runs and production, with filters by suite, reason and age.
+- A reviewer marks a result Pass or Fail, with a failure category and a note. The automatic verdict is kept; the reviewed verdict is stored next to it, with who and when.
+- Pass rates, comparisons and the Production page use the reviewed verdict where there is one.
+- Optional sampling of passing production requests into the queue, to catch what the checks miss.
+
+## Phase 9: CI integration
 
 - A CLI in the SDK: `workbench run --suite <id> --entry module:function --version <v> --fail-on-regression`.
 - Exit with a non-zero code when the new run has regressions against the previous run, or when the pass rate drops below a threshold.
@@ -83,10 +104,9 @@ Done when: the CLI fails on a run with a regression and passes on a clean one.
 
 ## Later, not in this stage
 
-- Trace ingestion in OpenTelemetry / OpenInference format for production traffic.
+- Trace ingestion in OpenTelemetry / OpenInference format, so apps in other languages or already instrumented with other tools can send production traffic.
 - LLM-as-a-judge evaluators, registered in the evaluator registry.
-- Human review queue for Review results.
-- Token and cost tracking on spans.
+- Price tables per model, so cost can be worked out when the app sends only token counts.
 - Dataset versioning and experiment comparison.
 - Alerts on regressions and SLA breaches.
 - User accounts, hosting and deployment for the public version.

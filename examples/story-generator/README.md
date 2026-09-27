@@ -14,7 +14,9 @@ Open http://127.0.0.1:8100. The key stays on the server in `.env`. The 80-word l
 
 ## Live tracing
 
-If `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` are in `.env`, every story made through the app is sent to the Workbench in the background (`client.observe` in `app.py`) and appears under the suite "Story generator (live)". Each one is scored by two guardrail checks: not cut off, and 80 words or fewer. If the Workbench is down, the app carries on normally.
+If `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY` are in `.env`, every story made through the app is sent to the Workbench in the background (`client.observe` in `app.py`) and appears on the **Production** page under "Story generator (live)". Each one is scored by two guardrail checks: not cut off, and 80 words or fewer. Stories from one browser tab share a session, the genre is sent as a tag, and token counts and cost (from `PRICES` in `story.py`) come from the OpenAI call's span. Set `APP_VERSION` in `.env` when you change the prompt or model, so the Production page can show whether the new version fails more. If the Workbench is down, the app carries on normally.
+
+`OPENAI_BASE_URL` points the app at any OpenAI-compatible API instead of OpenAI (Azure, OpenRouter, a local model server).
 
 ## Evaluate and trace it with Eval Workbench
 

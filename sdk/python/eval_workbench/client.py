@@ -52,7 +52,7 @@ class Client:
 
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         # Some hosts (Google's front end) reject a POST with no body, so always send one.
-        data = json.dumps(body).encode() if body is not None else (b"{}" if method in ("POST", "PUT", "PATCH") else None)
+        data = json.dumps(body, default=str).encode() if body is not None else (b"{}" if method in ("POST", "PUT", "PATCH") else None)
         last: Optional[Exception] = None
         for attempt in range(self.retries + 1):
             req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
@@ -102,10 +102,17 @@ class Client:
         version: str = "",
         model: str = "",
         checks: Optional[list] = None,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        tags: Optional[list] = None,
+        metadata: Optional[dict] = None,
     ) -> Any:
         """Call fn(input_text) for a real request and send its trace to the Workbench in the background.
 
-        Use this in your running application. The trace is scored by `checks` (same format as suite checks).
+        Use this in your running application. The trace is scored by `checks` (same format as suite checks); without
+        checks it is judged on errors and latency only. `user_id` and `session_id` group requests by end user and by
+        conversation, `tags` and `metadata` are for filtering. Token counts and cost are summed from span attributes
+        (prompt_tokens or input_tokens, completion_tokens or output_tokens, cost_usd).
         Sending never slows or breaks the request: failures to upload are dropped. Errors from fn are re-raised.
         """
         rec, token = start_recording()
@@ -123,7 +130,9 @@ class Client:
                 "attrs": {"suite": suite_name or suite_id}}
         payload = {"suiteId": suite_id, "suiteName": suite_name, "input": input_text, "actual": output,
                    "latencyMs": max(1, round(latency)), "timestamp": timestamp, "spans": [root] + rec.spans,
-                   "error": error, "version": version, "model": model, "checks": checks or []}
+                   "error": error, "version": version, "model": model, "checks": checks or [],
+                   "userId": None if user_id is None else str(user_id), "sessionId": None if session_id is None else str(session_id),
+                   "tags": [str(t) for t in tags or []], "metadata": metadata or {}}
 
         def send() -> None:
             try:

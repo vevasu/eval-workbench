@@ -21,9 +21,10 @@ def test_state_matches_sample_data_field_for_field(client, auth):
         for gc, wc in zip(got["cases"], want["cases"]):
             for field in ("id", "tag", "input", "expected", "checks"):
                 assert gc[field] == wc[field]
-    assert sorted(r["id"] for r in state["runs"]) == sorted(r["id"] for r in DATA["runs"])
+    test_runs = [r for r in DATA["runs"] if r["target"] != "production"]
+    assert sorted(r["id"] for r in state["runs"]) == sorted(r["id"] for r in test_runs)  # live traffic is read from /production
     got_runs = {r["id"]: r for r in state["runs"]}
-    for want in DATA["runs"]:
+    for want in test_runs:
         got = got_runs[want["id"]]
         for field in ("id", "suiteId", "version", "model", "target", "note", "startedAt", "finishedAt", "slaMs"):
             assert got[field] == want[field], field
@@ -33,13 +34,24 @@ def test_state_matches_sample_data_field_for_field(client, auth):
                 assert gr[field] == wr[field], (want["id"], wr["caseId"], field)
 
 
+def test_production_traffic_matches_sample_data_field_for_field(client, auth):
+    live_runs = [r for r in DATA["runs"] if r["target"] == "production"]
+    assert live_runs, "the sample data has production traffic"
+    for want_run in live_runs:
+        for want in want_run["results"]:
+            got = client.get(f"/production/traces/{want_run['id']}/{want['caseId']}", headers=auth).json()
+            assert got["run"]["target"] == "production"
+            for field in want:
+                assert got["result"][field] == want[field], (want_run["id"], want["caseId"], field)
+
+
 def test_read_endpoints(client, auth):
     first = DATA["runs"][0]["results"][0]
     assert first["caseId"] == "DS-001"
     assert "demo-story" in [s["id"] for s in client.get("/suites", headers=auth).json()]
     assert len(client.get("/suites/demo-story/cases", headers=auth).json()) == 10
     assert client.get("/suites/demo-story/cases/DS-001", headers=auth).json()["id"] == "DS-001"
-    assert len(client.get("/runs?suite_id=demo-story", headers=auth).json()) == 5
+    assert len(client.get("/runs?suite_id=demo-story", headers=auth).json()) == 7  # 5 test runs, 2 production
     assert len(client.get("/runs/DS-R1/results", headers=auth).json()) == 10
     one = client.get("/runs/DS-R1/results/DS-001", headers=auth).json()
     assert one["verdict"] == first["verdict"] and len(one["spans"]) == 4
