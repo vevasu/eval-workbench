@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from .db import init_db
-from .routers import access, admin, cases, dev, ingest, runs, state, suites
+from .routers import access, admin, cases, dev, ingest, production, reviews, runs, settings, state, suites
 from .settings import is_production
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -49,6 +49,9 @@ app.include_router(cases.router)
 app.include_router(runs.router)
 app.include_router(state.router)
 app.include_router(ingest.router)
+app.include_router(production.router)
+app.include_router(reviews.router)
+app.include_router(settings.router)
 app.include_router(dev.router)
 
 # Serve the web app from the same process. Mounted last so API routes win.

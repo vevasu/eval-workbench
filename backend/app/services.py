@@ -5,10 +5,10 @@ import re
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from .limits import check_suite_quota
-from .models import Run, Suite, TestCase, now_ms
+from .models import Result, Run, Span, Suite, TestCase, now_ms
 from .scoring import EVALUATORS
 
 
@@ -26,6 +26,29 @@ def get_run_or_404(session: Session, project_id: str, run_id: str) -> Run:
     return run
 
 
+def delete_runs(session: Session, project_id: str, run_ids: list) -> int:
+    """Delete runs with their results and spans. Returns how many results went."""
+    if not run_ids:
+        return 0
+    result_ids = select(Result.id).where(Result.project_id == project_id, Result.run_id.in_(run_ids))
+    session.exec(delete(Span).where(Span.result_id.in_(result_ids)))
+    n = session.exec(delete(Result).where(Result.project_id == project_id, Result.run_id.in_(run_ids))).rowcount
+    session.exec(delete(Run).where(Run.project_id == project_id, Run.id.in_(run_ids)))
+    return n
+
+
+def same_input(text: str) -> str:
+    """How live prompts are matched to test cases: capitals and extra spaces don't matter."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def matching_cases(session: Session, project_id: str, input_text: str) -> list:
+    """Test cases in any of the project's suites whose input is the same as this production request's."""
+    key = same_input(input_text)
+    rows = session.exec(select(TestCase).where(TestCase.project_id == project_id)).all()
+    return [c for c in rows if same_input(c.input) == key]
+
+
 def validate_checks(checks: list) -> None:
     from .settings import limits
     if len(checks) > limits()["max_checks"]:
@@ -38,6 +61,13 @@ def validate_checks(checks: list) -> None:
                 re.compile(c.get("pattern", ""))
             except re.error:
                 raise HTTPException(status_code=422, detail="The regex pattern is not valid.")
+        if c["type"] == "llm_judge":
+            criteria = str(c.get("criteria") or "").strip()
+            if not criteria or len(criteria) > 2000:
+                raise HTTPException(status_code=422, detail="An AI judge check needs criteria of up to 2000 characters.")
+            sample = c.get("sample", 100)
+            if not isinstance(sample, (int, float)) or not 1 <= sample <= 100:
+                raise HTTPException(status_code=422, detail="An AI judge's sample is a percentage from 1 to 100.")
 
 
 def make_prefix(name: str) -> str:
@@ -82,7 +112,7 @@ def add_case(session: Session, suite: Suite, data: dict) -> TestCase:
     case = TestCase(
         project_id=suite.project_id, suite_id=suite.id, id=case_id, position=count, tag=data.get("tag") or "",
         input=data["input"], expected=data.get("expected") or "", checks=data.get("checks") or [],
-        recorded=data.get("recorded"), recorded_latency_ms=data.get("recorded_latency_ms"),
+        recorded=data.get("recorded"), recorded_latency_ms=data.get("recorded_latency_ms"), origin=data.get("origin"),
     )
     session.add(case)
     session.flush()

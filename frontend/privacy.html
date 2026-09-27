@@ -21,13 +21,13 @@
 <main>
   <a class="back" href="./">← Back to Eval Workbench</a>
   <h1>Privacy notice</h1>
-  <p class="sub">Last updated 26 September 2026</p>
+  <p class="sub">Last updated 27 September 2026</p>
   <p>Eval Workbench is in private beta. This notice explains what we collect, why, where it is stored, and how to get it deleted. Questions or requests: <a href="mailto:productlab.support@gmail.com">productlab.support@gmail.com</a>.</p>
 
   <h2>What we collect</h2>
   <ul>
     <li><b>Access requests.</b> Your email address, and the name or team and description you choose to give. We use these only to review your request and to send you your API key.</li>
-    <li><b>Data your application sends.</b> If you connect an app, it sends us the inputs, outputs, test cases, timings and traces you choose to send, through our SDK or API. We store them to show you your results. We do not use them for anything else, we do not train models on them, and we do not sell or share them.</li>
+    <li><b>Data your application sends.</b> If you connect an app, it sends us the inputs, outputs, test cases, timings and traces you choose to send, through our SDK or API. For live traffic this can include identifiers you choose for your end users and their conversations, and tags and metadata you attach. When someone on your team reviews a result, we store the name they enter and their note with the decision. We store them to show you your results. We do not use them for anything else, we do not train models on them, and we do not sell or share them.</li>
     <li><b>API keys.</b> We store only a one-way hash of each key, so we cannot recover your key.</li>
     <li><b>Request logs.</b> Our hosting provider records standard web server logs (IP address, time, path, status) for security and troubleshooting. We also use your IP address briefly, in memory, to limit repeated requests.</li>
   </ul>
@@ -42,7 +42,7 @@
     <li><b>Neon</b> hosts the database where access requests and project data are stored.</li>
     <li><b>Google Fonts</b> serves the typefaces for the web app, so your browser requests them from Google.</li>
   </ul>
-  <p>Eval Workbench never calls an AI model on your behalf. Your application calls its own model provider with its own key.</p>
+  <p>Eval Workbench calls an AI model only for the AI judge, and only if you turn it on by saving your own model key. It then sends the request and answer being judged, with your criteria, to your model provider (OpenAI) using your key. We store that key encrypted, never show it again, and use it for nothing else. You can remove it at any time. Otherwise your application calls its own model provider with its own key.</p>
 
   <h2>How long we keep it</h2>
   <p>Project data is kept until you delete it or the beta ends. Access requests are kept until your project is deleted, or until you ask us to remove a request that was not approved. Request logs are kept for the hosting provider's standard period.</p>

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends
-from sqlmodel import Session, select
+from sqlmodel import Session, delete, select
 
 from ..auth import current_project
 from ..db import get_session
-from ..models import Project, Suite
+from ..models import Project, Run, Suite, TestCase
 from ..schemas import ImportIn, SuiteIn, SuiteOut, SuitePatch
 from ..serialize import suite_out
-from ..services import add_case, create_suite, get_suite_or_404, parse_import
+from ..services import add_case, create_suite, delete_runs, get_suite_or_404, parse_import
 
 router = APIRouter(prefix="/suites", tags=["suites"])
 
@@ -55,3 +55,15 @@ def update_suite(suite_id: str, body: SuitePatch, project: Project = Depends(cur
     session.add(suite)
     session.commit()
     return suite_out(session, suite)
+
+
+@router.delete("/{suite_id}")
+def delete_suite(suite_id: str, project: Project = Depends(current_project), session: Session = Depends(get_session)):
+    """Delete a suite with its test cases and every run of it, test runs and production traffic alike."""
+    suite = get_suite_or_404(session, project.id, suite_id)
+    run_ids = list(session.exec(select(Run.id).where(Run.project_id == project.id, Run.suite_id == suite.id)).all())
+    results = delete_runs(session, project.id, run_ids)
+    cases = session.exec(delete(TestCase).where(TestCase.project_id == project.id, TestCase.suite_id == suite.id)).rowcount
+    session.delete(suite)
+    session.commit()
+    return {"suiteId": suite_id, "deleted": {"cases": cases, "runs": len(run_ids), "results": results}}

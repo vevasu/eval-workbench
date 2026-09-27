@@ -82,6 +82,11 @@ def _human(out, c):
     return {"pass": None, "manual": True, "detail": c.get("rubric", "")}
 
 
+def _llm_judge(out, c):
+    """A model decides later (app/judge.py); until then the check is pending and the result waits in Review."""
+    return {"pass": None, "pending": True, "detail": "Waiting for the AI judge"}
+
+
 # Register new evaluator types here (LLM-as-a-judge, custom checks).
 EVALUATORS = {
     "contains_all": {"label": "Must include all", "category": "Incomplete answer", "run": _contains_all,
@@ -97,6 +102,8 @@ EVALUATORS = {
     "max_length": {"label": "Max length", "category": "Instruction not followed", "run": _max_length,
                    "describe": lambda c: f"{c['max']} characters"},
     "human": {"label": "Human review", "category": None, "run": _human, "describe": lambda c: c.get("rubric", "")},
+    "llm_judge": {"label": "AI judge", "category": "Instruction not followed", "run": _llm_judge,
+                  "describe": lambda c: c.get("criteria", "")},
 }
 
 
@@ -104,10 +111,14 @@ def expects_refusal(checks: list) -> bool:
     return any(REFUSAL_RE.search(v) for c in checks or [] for v in (c.get("values") or []))
 
 
-def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[float], error: Optional[str] = None) -> dict:
+def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[float], error: Optional[str] = None,
+             live: bool = False) -> dict:
+    """Score one execution. `live` is for production traffic: a request sent without checks is judged on errors
+    and latency only, instead of going to review (nobody reviews every live request)."""
     if error:
         return {"verdict": "Fail", "category": "Execution error", "reason": error, "checks": []}
     checks = []
+    refusal_expected = expects_refusal(checks_def)
     for c in checks_def or []:
         ev = EVALUATORS.get(c.get("type"))
         if ev is None:
@@ -115,27 +126,79 @@ def evaluate(checks_def: list, output: str, latency_ms: float, sla_ms: Optional[
             continue
         checks.append({"type": c["type"], "label": ev["label"], "spec": ev["describe"](c),
                        "category": c.get("category") or ev["category"], **ev["run"](output, c)})
+        if c.get("fromCase"):  # a production request checked by the test case whose input it matches
+            checks[-1]["fromCase"] = c["fromCase"]
+        if checks[-1].get("pending"):
+            checks[-1]["refusalExpected"] = refusal_expected  # kept for deciding again once the judge has answered
+    return decide(checks, output, latency_ms, sla_ms, live, refusal_expected)
+
+
+def decide(checks: list, output: str, latency_ms: float, sla_ms: Optional[float], live: bool = False,
+           refusal_expected: bool = False) -> dict:
+    """The verdict for a list of check results (the scoring rules in CLAUDE.md). Used again after an AI judge answers."""
     hard = [r for r in checks if not r.get("manual") and r["pass"] is False and not r.get("partial")]
     partial = [r for r in checks if r.get("partial")]
+    pending = next((r for r in checks if r.get("pending")), None)
     manual = next((r for r in checks if r.get("manual")), None)
-    if not checks:
+
+    def skip_judges():  # already decided without them, so the model is not asked
+        for r in checks:
+            if r.pop("pending", None):
+                r["skipped"] = True
+                r["detail"] = "Not judged: the answer was already decided by the other checks"
+
+    if not checks and not live:
         return {"verdict": "Review", "category": "Awaiting human review",
                 "reason": "No automated checks are defined for this case.", "checks": checks}
     if hard:
+        skip_judges()
         cat = hard[0].get("category") or "Incorrect answer"
-        if REFUSAL_RE.search(str(output)) and not expects_refusal(checks_def) and cat != "Policy violation":
+        if REFUSAL_RE.search(str(output)) and not refusal_expected and cat != "Policy violation":
             cat = "Unwarranted refusal"
-        return {"verdict": "Fail", "category": cat, "reason": f"{hard[0]['label']} failed: {hard[0]['detail']}.", "checks": checks}
+        return {"verdict": "Fail", "category": cat, "reason": f"{hard[0]['label']} failed: {hard[0]['detail'].rstrip('.')}.", "checks": checks}
     if partial:
+        skip_judges()
         return {"verdict": "Review", "category": "Partial match",
                 "reason": f"{partial[0]['label']} only partly met: {partial[0]['detail']}.", "checks": checks}
+    if pending:
+        return {"verdict": "Review", "category": "Awaiting AI judge",
+                "reason": f"Waiting for the AI judge to check: {pending['spec']}", "checks": checks}
     if manual:
         return {"verdict": "Review", "category": "Awaiting human review",
                 "reason": f"Needs a reviewer to judge: {manual['detail']}", "checks": checks}
     if sla_ms and latency_ms > sla_ms:
         return {"verdict": "Fail", "category": "Latency SLA breach",
                 "reason": f"Answer was correct but took {fmt_ms(latency_ms)} against a {fmt_ms(sla_ms)} SLA.", "checks": checks}
+    if not checks:
+        return {"verdict": "Pass", "category": None, "reason": "No errors and within the latency SLA. No content checks were sent.",
+                "checks": checks}
     return {"verdict": "Pass", "category": None, "reason": "All automated checks passed.", "checks": checks}
+
+
+# Failure categories a reviewer can choose. Same as CATEGORIES in the frontend.
+CATEGORIES = ["Incorrect answer", "Hallucination", "Incomplete answer", "Format violation", "Instruction not followed",
+              "Policy violation", "Unwarranted refusal", "Off-topic response", "Latency SLA breach", "Execution error"]
+
+TOKENS_IN = ("prompt_tokens", "input_tokens")
+TOKENS_OUT = ("completion_tokens", "output_tokens")
+
+
+def span_totals(spans: list) -> dict:
+    """Tokens and cost for one execution, summed from span attributes (prompt_tokens or input_tokens,
+    completion_tokens or output_tokens, cost_usd). Set them on the span of each model call, not on its parents.
+    Same as spanTotals() in the frontend."""
+    totals = {"tokensIn": None, "tokensOut": None, "costUsd": None}
+    for sp in spans or []:
+        attrs = (sp.get("attrs") if isinstance(sp, dict) else getattr(sp, "attrs", None)) or {}
+        for field, keys in (("tokensIn", TOKENS_IN), ("tokensOut", TOKENS_OUT), ("costUsd", ("cost_usd",))):
+            for k in keys:
+                v = attrs.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0:
+                    totals[field] = (totals[field] or 0) + v
+    for field in ("tokensIn", "tokensOut"):
+        if totals[field] is not None:
+            totals[field] = int(totals[field])
+    return totals
 
 
 def _pct(sorted_vals: list, p: float):

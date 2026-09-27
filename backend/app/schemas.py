@@ -33,6 +33,19 @@ class ResultOut(CamelModel):
     model: str = ""
     version: str = ""
     spans: list[SpanOut] = []
+    review: Optional[dict] = None  # a person's decision; verdict and category then hold it
+    # Production traces only (None for test runs).
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    tags: Optional[list] = None
+    metadata: Optional[dict] = Field(default=None, validation_alias="meta")
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
+    cost_usd: Optional[float] = None
+
+
+# Left out of /state, where every result is from a test run and these are always empty.
+LIVE_FIELDS = {"user_id", "session_id", "tags", "metadata", "tokens_in", "tokens_out", "cost_usd"}
 
 
 class CaseOut(CamelModel):
@@ -43,6 +56,7 @@ class CaseOut(CamelModel):
     checks: list = []
     recorded: Optional[str] = None
     recorded_latency_ms: Optional[int] = None
+    origin: Optional[str] = None
 
 
 class SuiteOut(CamelModel):
@@ -55,6 +69,7 @@ class SuiteOut(CamelModel):
     system_prompt: str = ""
     context: Any = None
     created_at: int
+    live_checks: Optional[list] = None
     cases: Optional[list[CaseOut]] = None
 
 
@@ -101,6 +116,7 @@ class CaseIn(CamelModel):
     checks: list[dict] = []
     recorded: Optional[str] = None
     recorded_latency_ms: Optional[int] = None
+    origin: Optional[str] = Field(default=None, max_length=200)  # "<run id>/<case id>" of a production trace
 
 
 class CasePatch(CamelModel):
@@ -144,6 +160,22 @@ class ResultIn(CamelModel):
 
 class ResultsIn(CamelModel):
     results: list[ResultIn]
+
+
+class LiveChecksIn(CamelModel):
+    checks: list[dict]
+
+
+class JudgeSettingsIn(CamelModel):
+    api_key: Optional[str] = Field(default=None, max_length=400)  # omit to keep the saved key
+    model: Optional[str] = Field(default=None, max_length=80)
+
+
+class ReviewIn(CamelModel):
+    verdict: Literal["Pass", "Fail"]
+    category: Optional[str] = None  # required for Fail: why it failed
+    note: str = Field(default="", max_length=1000)
+    reviewer: str = Field(default="", max_length=80)
 
 
 class ProjectIn(CamelModel):

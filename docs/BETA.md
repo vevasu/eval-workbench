@@ -1,6 +1,6 @@
 # Running a private beta
 
-The public sees a demo. Anyone can ask for access; you approve by hand; approved people get their own project and an API key. The Workbench never calls a model, so a beta costs you hosting only. Each user's app pays for its own model calls.
+The public sees a demo. Anyone can ask for access; you approve by hand; approved people get their own project and an API key. The Workbench calls a model only for the AI judge, with the model key each project saves itself, so a beta costs you hosting only. Each user pays for their own model calls, including the AI judge's.
 
 ## What a visitor sees
 
@@ -57,7 +57,13 @@ Never set `EVAL_WORKBENCH_DEV_KEY` on a shared or public server.
 
 The `Dockerfile` in the repository root builds one image that serves the API and the web app. Build context is the repository root. On the host, set `EVAL_WORKBENCH_ADMIN_KEY`, `DATABASE_URL` (Postgres with persistent storage), `TRUST_PROXY=1`, and put HTTPS in front of it (most hosts do this for you). The image reads `PORT` if the host sets it.
 
+### AI judge
+
+Projects save their own model key (Production page, Checks on live traffic). It is encrypted with a key derived from `EVAL_WORKBENCH_SECRET`, or from `EVAL_WORKBENCH_ADMIN_KEY` if that is not set; changing that secret makes saved model keys unreadable, and projects have to enter them again. Production requests are judged in a background thread just after they are stored. Cloud Run slows the CPU down between requests, so a judgment can wait until the next request arrives; for prompt judgments, turn that off with `gcloud run services update eval-workbench --region us-central1 --no-cpu-throttling` (the instance is then billed while it is running). `EVAL_WORKBENCH_JUDGE_BASE_URL` points the judge at another OpenAI-compatible API (tests use a stand-in).
+
 ### Current deployment
+
+The example story generator runs as a second Cloud Run service, `story-generator`, whose visitors enter their own OpenAI key and whose traffic appears on the Workbench's Production page. Its code is no longer in this repository; the last version, with its deployment steps ("Put it online" in its README), is at commit `eed0ed6` (`git checkout eed0ed6 -- examples/story-generator`).
 
 Live on Google Cloud Run: service `eval-workbench`, region `us-central1`, at https://eval-workbench-5lofnwh6hq-uc.a.run.app. The database is Neon Postgres. `DATABASE_URL` and `EVAL_WORKBENCH_ADMIN_KEY` come from Secret Manager (secrets `eval-workbench-db` and `eval-workbench-admin`); `EVAL_WORKBENCH_ENV=production` and `TRUST_PROXY=1` are plain environment variables. To redeploy from the repository root:
 
@@ -100,7 +106,7 @@ Before a risky change (a schema migration, a bulk delete), take a manual snapsho
 ## What beta users do
 
 1. You send them the key and your Workbench address (`approve` prints the message).
-2. They install the SDK from your site (`pip install <your Workbench address>/sdk/eval_workbench-0.1.0-py3-none-any.whl`; the **Get started** page shows the exact command) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
+2. They install the SDK from your site (`pip install <your Workbench address>/sdk/eval_workbench-0.2.0-py3-none-any.whl`; the **Get started** page shows the exact command) and set `EVAL_WORKBENCH_URL` and `EVAL_WORKBENCH_API_KEY`.
 3. They run a suite with `client.run_suite(...)` or send live traffic with `client.observe(...)`.
 4. They open your site, choose **I have a key**, paste it, and see only their own project.
 

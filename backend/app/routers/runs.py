@@ -12,7 +12,8 @@ from ..models import Project, Result, Run, Span, TestCase, now_ms
 from ..schemas import CaseOut, ResultIn, ResultOut, ResultsIn, RunIn, RunOut
 from ..scoring import compare_runs, evaluate, summarize
 from ..serialize import cases_for, results_for, run_out
-from ..services import get_run_or_404, get_suite_or_404, next_run_id
+from ..judge import judge_rows
+from ..services import delete_runs, get_run_or_404, get_suite_or_404, next_run_id
 
 router = APIRouter(tags=["runs"])
 
@@ -45,6 +46,15 @@ def get_run(run_id: str, project: Project = Depends(current_project), session: S
     return run_out(session, get_run_or_404(session, project.id, run_id), with_results=True)
 
 
+@router.delete("/runs/{run_id}")
+def delete_run(run_id: str, project: Project = Depends(current_project), session: Session = Depends(get_session)):
+    """Delete a run with its results and traces."""
+    run = get_run_or_404(session, project.id, run_id)
+    results = delete_runs(session, project.id, [run.id])
+    session.commit()
+    return {"runId": run_id, "deleted": {"results": results}}
+
+
 @router.get("/runs/{run_id}/results", response_model=list[ResultOut])
 def list_results(run_id: str, project: Project = Depends(current_project), session: Session = Depends(get_session)):
     get_run_or_404(session, project.id, run_id)
@@ -61,7 +71,7 @@ def get_result(run_id: str, case_id: str, project: Project = Depends(current_pro
     raise HTTPException(status_code=404, detail="Execution not found")
 
 
-def _store_result(session: Session, run: Run, case: TestCase, body: ResultIn) -> None:
+def _store_result(session: Session, run: Run, case: TestCase, body: ResultIn) -> Result:
     old = session.exec(select(Result).where(
         Result.project_id == run.project_id, Result.run_id == run.id, Result.case_id == case.id)).all()
     for r in old:
@@ -77,6 +87,7 @@ def _store_result(session: Session, run: Run, case: TestCase, body: ResultIn) ->
     session.flush()
     for s in body.spans:
         session.add(Span(result_id=row.id, name=s.name, kind=s.kind, start=s.start, dur=s.dur, depth=s.depth, attrs=s.attrs))
+    return row
 
 
 @router.post("/runs/{run_id}/results")
@@ -96,9 +107,9 @@ def add_results(run_id: str, body: ResultsIn, project: Project = Depends(current
     unknown = [r.case_id for r in body.results if r.case_id not in cases]
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unknown case ids: {', '.join(unknown)}")
-    for r in body.results:
-        _store_result(session, run, cases[r.case_id], r)
+    stored_rows = [_store_result(session, run, cases[r.case_id], r) for r in body.results]
     session.commit()
+    judge_rows(session, project, [row for row in stored_rows if row.category == "Awaiting AI judge"])
     stored = {r.case_id: r for r in results_for(session, project.id, run.id)}
     return {"results": [stored[r.case_id] for r in body.results]}
 
