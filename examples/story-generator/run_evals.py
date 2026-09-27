@@ -4,6 +4,7 @@
 """
 import argparse
 import os
+import re
 from pathlib import Path
 
 from eval_workbench import Client
@@ -21,9 +22,17 @@ if client.get_suite(SUITE_ID) is None:
     client.import_suite((Path(__file__).parent / "suite.json").read_text(encoding="utf-8"))
     print(f"Created suite '{SUITE_ID}' from suite.json")
 
+
+
+def run_case(text: str) -> str:
+    """A test input such as "A dragon story (genre: fantasy)" is sent like the web page sends it: idea and genre apart."""
+    m = re.match(r"^(.*?)\s*\(genre:\s*([^)]+)\)\s*$", text)
+    return generate_story(m.group(1), m.group(2).strip()) if m else generate_story(text)
+
+
 model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 result = client.run_suite(
-    SUITE_ID, lambda prompt: generate_story(prompt), version=args.version, model=model, note=args.note,
+    SUITE_ID, run_case, version=args.version, model=model, note=args.note,
     on_result=lambda r: print(f"  {r['caseId']}  {r['verdict']:<6} {r['category'] or '':<24} {r['latencyMs']} ms"),
 )
 s = result.summary

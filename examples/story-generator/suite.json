@@ -81,6 +81,24 @@
       "checks": [
         { "type": "human", "rubric": "Has a clear beginning, a turn and an ending" }
       ]
+    },
+    {
+      "input": "Suggest a horror story (genre: comedy)",
+      "expected": "Horror and comedy contradict each other. Doesn't just write a story: points out the conflict and asks which the person wants.",
+      "tag": "Contradictory request",
+      "checks": [
+        { "type": "max_length", "max": 300, "category": "Instruction not followed" },
+        { "type": "contains_any", "values": ["horror or comedy", "comedy or horror", "which would you like", "which do you want", "which one", "would you like"], "category": "Instruction not followed" }
+      ]
+    },
+    {
+      "input": "Dont suggest any story (genre: fantasy)",
+      "expected": "The person asked for no story. Doesn't write one: asks what they would like instead.",
+      "tag": "Contradictory request",
+      "checks": [
+        { "type": "max_length", "max": 300, "category": "Instruction not followed" },
+        { "type": "contains_any", "values": ["what kind of story", "would you like", "what would you like"], "category": "Instruction not followed" }
+      ]
     }
   ]
 }
